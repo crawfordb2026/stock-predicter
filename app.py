@@ -53,10 +53,16 @@ def home():
 @app.route('/static/<path:filename>')
 def serve_static(filename):
     try:
+        logger.info(f"Attempting to serve static file: {filename}")
+        static_dir = os.path.join(os.getcwd(), 'web', 'static')
+        logger.info(f"Static directory: {static_dir}")
+        file_path = os.path.join(static_dir, filename)
+        logger.info(f"Full file path: {file_path}")
+        logger.info(f"File exists: {os.path.exists(file_path)}")
         return send_from_directory('web/static', filename)
     except Exception as e:
         logger.error(f"Error serving static file {filename}: {str(e)}")
-        return f"Error: {str(e)}", 404
+        return f"Error serving {filename}: {str(e)}", 404
 
 def calculate_rsi(prices, period=14):
     delta = prices.diff()
