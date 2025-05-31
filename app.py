@@ -122,6 +122,57 @@ def calculate_obv(data):
             obv[i] = obv[i-1]
     return obv
 
+def _fetch_with_session(symbol, period):
+    """Fetch data using custom session with browser headers"""
+    import yfinance as yf
+    import requests
+    
+    session = requests.Session()
+    session.headers.update({
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5',
+        'Accept-Encoding': 'gzip, deflate',
+        'Connection': 'keep-alive',
+    })
+    
+    stock = yf.Ticker(symbol, session=session)
+    return stock.history(period=period)
+
+def _fetch_direct(symbol, period):
+    """Fetch data using direct yfinance with timeout"""
+    import yfinance as yf
+    
+    stock = yf.Ticker(symbol)
+    return stock.history(period=period, timeout=15, threads=True)
+
+def _fetch_alternative_period(symbol, period):
+    """Fetch data using alternative period if original fails"""
+    import yfinance as yf
+    
+    # Map to longer periods if original period is short
+    period_alternatives = {
+        '3mo': ['6mo', '1y'],
+        '6mo': ['1y', '2y'],
+        '1y': ['2y', '5y'],
+        '2y': ['5y', 'max'],
+        '5y': ['max']
+    }
+    
+    alternatives = period_alternatives.get(period, ['1y', '2y'])
+    
+    for alt_period in alternatives:
+        try:
+            stock = yf.Ticker(symbol)
+            hist = stock.history(period=alt_period)
+            if len(hist) > 0:
+                logging.info(f"Using alternative period {alt_period} instead of {period}")
+                return hist
+        except:
+            continue
+    
+    return None
+
 @app.route('/test', methods=['GET'])
 def test():
     return jsonify({'status': 'ok', 'message': 'Server is running'})
@@ -180,31 +231,30 @@ def predict():
         if not symbol or not period:
             return jsonify({'error': 'Missing symbol or period parameter'}), 400
         
-        # Get historical data with timeout protection and proper headers
-        try:
-            # Configure yfinance to work in cloud environments
-            import yfinance as yf
-            import requests
-            
-            # Set up proper headers to avoid being blocked by Yahoo Finance
-            session = requests.Session()
-            session.headers.update({
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-            })
-            
-            stock = yf.Ticker(symbol, session=session)
-            hist = stock.history(period=period)
-            logging.info(f"Fetched {len(hist)} data points for {symbol} over {period}")
-            
-            # If no data, try alternative approach
-            if len(hist) == 0:
-                logging.warning(f"No data with session, trying direct approach for {symbol}")
-                stock = yf.Ticker(symbol)
-                hist = stock.history(period=period, timeout=10)
-                
-        except Exception as e:
-            logging.error(f"Error fetching data for {symbol}: {str(e)}")
-            return jsonify({'error': f'Could not fetch data for {symbol}. Yahoo Finance may be temporarily unavailable. Please try again in a few minutes.'}), 400
+        # Get historical data with multiple fallback strategies
+        hist = None
+        attempts = [
+            # Strategy 1: Custom session with headers
+            lambda: _fetch_with_session(symbol, period),
+            # Strategy 2: Direct yfinance with different parameters
+            lambda: _fetch_direct(symbol, period),
+            # Strategy 3: Alternative period if requested period fails
+            lambda: _fetch_alternative_period(symbol, period),
+        ]
+        
+        for i, attempt in enumerate(attempts):
+            try:
+                logging.info(f"Data fetch attempt {i+1} for {symbol}")
+                hist = attempt()
+                if hist is not None and len(hist) > 0:
+                    logging.info(f"Success with attempt {i+1}: {len(hist)} data points")
+                    break
+            except Exception as e:
+                logging.warning(f"Attempt {i+1} failed: {str(e)}")
+                continue
+        
+        if hist is None or len(hist) == 0:
+            return jsonify({'error': f'Unable to fetch data for {symbol} from Yahoo Finance. This may be due to network restrictions. Please try again later or contact support.'}), 400
         
         if len(hist) < 30:
             logging.warning(f"Not enough data for {symbol}: got {len(hist)} points, need at least 30")
