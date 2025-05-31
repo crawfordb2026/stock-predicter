@@ -64,6 +64,23 @@ def serve_static(filename):
         logger.error(f"Error serving static file {filename}: {str(e)}")
         return f"Error serving {filename}: {str(e)}", 404
 
+# Explicit routes for CSS and JS files (backup solution)
+@app.route('/static/css/style.css')
+def serve_css():
+    try:
+        return send_file('web/static/css/style.css', mimetype='text/css')
+    except Exception as e:
+        logger.error(f"Error serving CSS: {str(e)}")
+        return f"Error serving CSS: {str(e)}", 404
+
+@app.route('/static/js/main.js')
+def serve_js():
+    try:
+        return send_file('web/static/js/main.js', mimetype='application/javascript')
+    except Exception as e:
+        logger.error(f"Error serving JS: {str(e)}")
+        return f"Error serving JS: {str(e)}", 404
+
 def calculate_rsi(prices, period=14):
     delta = prices.diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
