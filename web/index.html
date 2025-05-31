@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Advanced Stock Predictor</title>
+    <link rel="stylesheet" href="static/css/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Advanced Stock Predictor</h1>
+            <p>Our models predict the stock price for the next trading day. The prediction combines insights <br>from multiple machine learning models to provide the most accurate forecast possible.</p>
+        </header>
+
+        <main>
+            <section class="input-section">
+                <div class="form-group">
+                    <label for="stockSymbol">Stock Symbol:</label>
+                    <select id="stockSymbol">
+                        <option value="AAPL">Apple Inc. (AAPL)</option>
+                        <option value="MSFT">Microsoft (MSFT)</option>
+                        <option value="GOOGL">Google (GOOGL)</option>
+                        <option value="AMZN">Amazon (AMZN)</option>
+                        <option value="TSLA">Tesla (TSLA)</option>
+                        <option value="META">Meta (META)</option>
+                        <option value="NVDA">NVIDIA (NVDA)</option>
+                        <option value="JPM">JPMorgan Chase (JPM)</option>
+                        <option value="V">Visa (V)</option>
+                        <option value="WMT">Walmart (WMT)</option>
+                        <option value="JNJ">Johnson & Johnson (JNJ)</option>
+                        <option value="PG">Procter & Gamble (PG)</option>
+                        <option value="MA">Mastercard (MA)</option>
+                        <option value="HD">Home Depot (HD)</option>
+                        <option value="BAC">Bank of America (BAC)</option>
+                        <option value="DIS">Disney (DIS)</option>
+                        <option value="NFLX">Netflix (NFLX)</option>
+                        <option value="INTC">Intel (INTC)</option>
+                        <option value="CSCO">Cisco (CSCO)</option>
+                        <option value="PFE">Pfizer (PFE)</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="period">Time Period: <span class="tooltip-icon" title="Select the historical data period for model training. Longer periods (5y) help identify long-term trends, while shorter periods (3mo) focus on recent market behavior. 2 years is recommended for balanced analysis.">?</span></label>
+                    <select id="period">
+                        <option value="3mo">3 Months</option>
+                        <option value="6mo">6 Months</option>
+                        <option value="1y">1 Year</option>
+                        <option value="2y" selected>2 Years</option>
+                        <option value="5y">5 Years</option>
+                    </select>
+                </div>
+                <button id="predictBtn" class="primary-btn">Predict</button>
+            </section>
+
+            <section class="results-section">
+                <div class="prediction-card">
+                    <h2>Current Analysis</h2>
+                    <div class="prediction-details">
+                        <div class="detail-item">
+                            <span class="label">Current Price:</span>
+                            <span id="currentPrice" class="value">-</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="label">Predicted Price:</span>
+                            <span id="predictedPrice" class="value">-</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="label">Expected Change:</span>
+                            <span id="expectedChange" class="value">-</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="label">Prediction Confidence:</span>
+                            <span id="predictionConfidence" class="value">-</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="chart-container">
+                    <canvas id="priceChart"></canvas>
+                </div>
+
+                <div class="analysis-grid">
+                    <div class="analysis-card">
+                        <h2>Technical Analysis</h2>
+                        <div class="metrics-grid">
+                            <div class="metric-item">
+                                <span class="label">RSI <span class="tooltip-icon" title="Relative Strength Index (RSI) measures momentum on a scale of 0-100. Above 70 indicates overbought conditions, below 30 indicates oversold conditions. Helps identify potential trend reversals.">?</span></span>
+                                <span id="rsi" class="value">-</span>
+                            </div>
+                            <div class="metric-item">
+                                <span class="label">MACD <span class="tooltip-icon" title="Moving Average Convergence Divergence (MACD) shows the relationship between two moving averages. Positive values suggest upward momentum, negative values suggest downward momentum. Helps identify trend changes and momentum.">?</span></span>
+                                <span id="macd" class="value">-</span>
+                            </div>
+                            <div class="metric-item">
+                                <span class="label">Support Level <span class="tooltip-icon" title="The price level where the stock has historically found buying support. Often acts as a floor for the stock price. Breaking below support may indicate a bearish trend.">?</span></span>
+                                <span id="supportLevel" class="value">-</span>
+                            </div>
+                            <div class="metric-item">
+                                <span class="label">Resistance Level <span class="tooltip-icon" title="The price level where the stock has historically faced selling pressure. Often acts as a ceiling for the stock price. Breaking above resistance may indicate a bullish trend.">?</span></span>
+                                <span id="resistanceLevel" class="value">-</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="analysis-card">
+                        <h2>Risk Metrics</h2>
+                        <div class="metrics-grid">
+                            <div class="metric-item">
+                                <span class="label">Volatility <span class="tooltip-icon" title="Measures the degree of variation in stock price over time. Higher volatility indicates greater risk and potential for larger price swings. Lower volatility suggests more stable price movement.">?</span></span>
+                                <span id="volatility" class="value">-</span>
+                            </div>
+                            <div class="metric-item">
+                                <span class="label">Sharpe Ratio <span class="tooltip-icon" title="Measures risk-adjusted returns. A ratio above 1 is considered good, above 2 is very good, and above 3 is excellent. Higher values indicate better risk-adjusted performance.">?</span></span>
+                                <span id="sharpeRatio" class="value">-</span>
+                            </div>
+                            <div class="metric-item">
+                                <span class="label">Max Drawdown <span class="tooltip-icon" title="The largest percentage drop from a peak to a subsequent trough. Indicates the worst possible loss an investor could have experienced in the period. Lower values suggest better risk management.">?</span></span>
+                                <span id="maxDrawdown" class="value">-</span>
+                            </div>
+                            <div class="metric-item">
+                                <span class="label">Price Momentum <span class="tooltip-icon" title="Recent price movement trend over the last 5 days. Positive values indicate upward price momentum, negative values indicate downward momentum. Helps identify short-term price trends.">?</span></span>
+                                <span id="priceMomentum" class="value">-</span>
+                            </div>
+                            <div class="metric-item">
+                                <span class="label">Volume Trend <span class="tooltip-icon" title="Recent trading volume compared to 20-day average. Positive values indicate increasing market interest, negative values indicate decreasing interest. Higher volume often confirms price trends.">?</span></span>
+                                <span id="volumeTrend" class="value">-</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="model-performance">
+                    <h2>Model Performance</h2>
+                    <div class="ensemble-summary">
+                        <h3>Why We Use Multiple Models</h3>
+                        <p>Our prediction system combines four different machine learning models to create a more robust and accurate forecast. This ensemble approach helps us:</p>
+                        <ul class="ensemble-benefits">
+                            <li>Reduce prediction errors by averaging out individual model biases</li>
+                            <li>Capture different aspects of market behavior (trends, patterns, and relationships)</li>
+                            <li>Improve reliability by not relying on a single model's perspective</li>
+                            <li>Better handle different market conditions and scenarios</li>
+                        </ul>
+                        <p class="ensemble-note">Each model contributes its unique strengths to the final prediction, weighted based on its historical performance and reliability in different market conditions.</p>
+                    </div>
+                    <div class="model-selector">
+                        <button class="model-tab active" data-model="lstm">LSTM</button>
+                        <button class="model-tab" data-model="linear_regression">Linear Regression</button>
+                        <button class="model-tab" data-model="random_forest">Random Forest</button>
+                        <button class="model-tab" data-model="gradient_boosting">Gradient Boosting</button>
+                    </div>
+                    
+                    <div class="model-details">
+                        <div class="model-info active" id="lstm-info">
+                            <h3>Long Short-Term Memory (LSTM) <span class="model-percentage">35%</span></h3>
+                            <p class="model-description">A specialized type of Recurrent Neural Network designed to capture long-term dependencies in time series data. LSTM is particularly effective for stock prediction because it can learn complex patterns over extended periods and remember important historical events. It's especially good at identifying trends and seasonal patterns in stock prices.</p>
+                            <ul class="model-strengths">
+                                <li>Highest weight because it's best at capturing long-term patterns</li>
+                                <li>Excels at understanding temporal dependencies</li>
+                                <li>Most sophisticated model for time series data</li>
+                                <li>Particularly good at identifying trends and seasonal patterns</li>
+                            </ul>
+                        </div>
+
+                        <div class="model-info" id="linear_regression-info">
+                            <h3>Linear Regression <span class="model-percentage">15%</span></h3>
+                            <p class="model-description">A fundamental statistical model that identifies linear relationships between features and stock prices. While simpler than other models, it provides valuable insights into basic market trends and can serve as a baseline for comparison. It's particularly useful for understanding the impact of individual features on stock prices.</p>
+                            <ul class="model-strengths">
+                                <li>Lowest weight as it's the simplest model</li>
+                                <li>Provides baseline trend analysis</li>
+                                <li>Good for understanding basic relationships</li>
+                                <li>Helps ground the predictions in fundamental trends</li>
+                            </ul>
+                        </div>
+
+                        <div class="model-info" id="random_forest-info">
+                            <h3>Random Forest <span class="model-percentage">25%</span></h3>
+                            <p class="model-description">An ensemble learning method that combines multiple decision trees to make predictions. Random Forest is robust against overfitting and can handle non-linear relationships in the data. It's particularly effective at capturing complex interactions between different market factors and can provide insights into feature importance.</p>
+                            <ul class="model-strengths">
+                                <li>Robust against overfitting</li>
+                                <li>Good at handling multiple features</li>
+                                <li>Provides feature importance insights</li>
+                                <li>Balanced performance across different market conditions</li>
+                            </ul>
+                        </div>
+
+                        <div class="model-info" id="gradient_boosting-info">
+                            <h3>Gradient Boosting <span class="model-percentage">25%</span></h3>
+                            <p class="model-description">A powerful ensemble technique that builds trees sequentially, with each new tree focusing on correcting the errors of previous trees. Gradient Boosting is known for its high accuracy and ability to capture complex patterns in the data. It's particularly effective at identifying subtle market trends and can adapt quickly to changing market conditions.</p>
+                            <ul class="model-strengths">
+                                <li>Strong at complex pattern recognition</li>
+                                <li>Excellent at handling non-linear relationships</li>
+                                <li>Good at adapting to changing market conditions</li>
+                                <li>Provides high accuracy predictions</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+    <script src="static/js/main.js"></script>
+</body>
+</html> 
