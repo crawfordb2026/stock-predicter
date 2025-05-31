@@ -15,6 +15,7 @@ from tensorflow.keras.layers import LSTM, Dense, Dropout
 import tensorflow as tf
 import os
 import requests
+from datetime import datetime, timedelta
 
 # Set up logging
 logging.basicConfig(level=logging.DEBUG)
@@ -173,6 +174,95 @@ def _fetch_alternative_period(symbol, period):
     
     return None
 
+def _generate_mock_data(symbol, period):
+    """Generate realistic mock stock data when Yahoo Finance is blocked"""
+    import pandas as pd
+    import numpy as np
+    from datetime import datetime, timedelta
+    
+    # Set up period mapping
+    period_days = {
+        '3mo': 90,
+        '6mo': 180,
+        '1y': 365,
+        '2y': 730,
+        '5y': 1825,
+        'max': 2000
+    }
+    
+    days = period_days.get(period, 730)
+    
+    # Generate date range
+    end_date = datetime.now()
+    start_date = end_date - timedelta(days=days)
+    dates = pd.date_range(start=start_date, end=end_date, freq='D')
+    dates = dates[dates.dayofweek < 5]  # Only weekdays (trading days)
+    
+    # Base prices for different stocks
+    stock_base_prices = {
+        'AAPL': 180.0,
+        'MSFT': 380.0,
+        'GOOGL': 140.0,
+        'AMZN': 150.0,
+        'TSLA': 240.0,
+        'META': 320.0,
+        'NVDA': 450.0,
+        'JPM': 150.0,
+        'V': 250.0,
+        'WMT': 160.0,
+        'JNJ': 160.0,
+        'PG': 150.0,
+        'MA': 400.0,
+        'HD': 330.0,
+        'BAC': 35.0,
+        'DIS': 110.0,
+        'NFLX': 450.0,
+        'INTC': 45.0,
+        'CSCO': 50.0,
+        'PFE': 30.0
+    }
+    
+    base_price = stock_base_prices.get(symbol, 100.0)
+    
+    # Generate realistic price movement
+    np.random.seed(42)  # For consistent results
+    
+    # Create trend and volatility
+    trend = np.random.normal(0.0001, 0.002, len(dates))  # Small upward trend with noise
+    volatility = 0.02  # 2% daily volatility
+    
+    # Generate returns using random walk with trend
+    returns = np.random.normal(trend, volatility)
+    
+    # Create price series
+    prices = [base_price]
+    for ret in returns:
+        new_price = prices[-1] * (1 + ret)
+        prices.append(max(new_price, 1.0))  # Ensure price doesn't go below $1
+    
+    prices = prices[1:]  # Remove the initial price
+    
+    # Create OHLC data
+    highs = [p * np.random.uniform(1.001, 1.02) for p in prices]
+    lows = [p * np.random.uniform(0.98, 0.999) for p in prices]
+    opens = [prices[i-1] if i > 0 else prices[0] for i in range(len(prices))]
+    volumes = [np.random.randint(50000000, 200000000) for _ in prices]
+    
+    # Create DataFrame in yfinance format
+    data = {
+        'Open': opens,
+        'High': highs,
+        'Low': lows,
+        'Close': prices,
+        'Volume': volumes
+    }
+    
+    df = pd.DataFrame(data, index=dates[:len(prices)])
+    df.index.name = 'Date'
+    
+    logging.info(f"Generated {len(df)} mock data points for {symbol}")
+    return df
+
 @app.route('/test', methods=['GET'])
 def test():
     return jsonify({'status': 'ok', 'message': 'Server is running'})
@@ -233,6 +323,7 @@ def predict():
         
         # Get historical data with multiple fallback strategies
         hist = None
+        using_mock_data = False
         attempts = [
             # Strategy 1: Custom session with headers
             lambda: _fetch_with_session(symbol, period),
@@ -240,6 +331,8 @@ def predict():
             lambda: _fetch_direct(symbol, period),
             # Strategy 3: Alternative period if requested period fails
             lambda: _fetch_alternative_period(symbol, period),
+            # Strategy 4: Mock data as final fallback (for demo purposes)
+            lambda: _generate_mock_data(symbol, period),
         ]
         
         for i, attempt in enumerate(attempts):
@@ -247,14 +340,18 @@ def predict():
                 logging.info(f"Data fetch attempt {i+1} for {symbol}")
                 hist = attempt()
                 if hist is not None and len(hist) > 0:
-                    logging.info(f"Success with attempt {i+1}: {len(hist)} data points")
+                    if i == 3:  # Mock data
+                        using_mock_data = True
+                        logging.info(f"Using mock data for demonstration: {len(hist)} data points")
+                    else:
+                        logging.info(f"Success with attempt {i+1}: {len(hist)} data points")
                     break
             except Exception as e:
                 logging.warning(f"Attempt {i+1} failed: {str(e)}")
                 continue
         
         if hist is None or len(hist) == 0:
-            return jsonify({'error': f'Unable to fetch data for {symbol} from Yahoo Finance. This may be due to network restrictions. Please try again later or contact support.'}), 400
+            return jsonify({'error': f'Unable to generate any data for {symbol}. Please try again or contact support.'}), 400
         
         if len(hist) < 30:
             logging.warning(f"Not enough data for {symbol}: got {len(hist)} points, need at least 30")
@@ -519,6 +616,7 @@ def predict():
             'predicted_price': round(predicted_price, 2),
             'expected_change': round(expected_change, 2),
             'prediction_confidence': round(confidence * 100, 2),  # Convert to percentage
+            'data_source': 'mock' if using_mock_data else 'live',  # Indicate data source
             'technical_analysis': {
                 'rsi': round(latest_rsi, 2),
                 'macd': round(latest_macd, 2),
