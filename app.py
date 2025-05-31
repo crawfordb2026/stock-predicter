@@ -22,7 +22,14 @@ app = Flask(__name__)
 # Enable CORS for all routes
 CORS(app, resources={
     r"/*": {
-        "origins": ["http://127.0.0.1:5500", "http://localhost:5500"],
+        "origins": [
+            "http://127.0.0.1:5000", 
+            "http://localhost:5000",
+            "http://127.0.0.1:5500", 
+            "http://localhost:5500",
+            "http://127.0.0.1:8000", 
+            "http://localhost:8000"
+        ],
         "methods": ["GET", "POST", "OPTIONS"],
         "allow_headers": ["Content-Type", "Accept"],
         "supports_credentials": True
@@ -403,5 +410,16 @@ def predict():
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
-    logger.info("Starting Flask server...")
-    app.run(debug=True, port=5000, host='127.0.0.1') 
+    import os
+    
+    # Get port from environment variable or default to 5000
+    port = int(os.environ.get('PORT', 5000))
+    
+    # Get host from environment variable or default to localhost
+    host = os.environ.get('HOST', '127.0.0.1')
+    
+    # Check if running in production
+    debug = os.environ.get('FLASK_ENV') != 'production'
+    
+    logger.info(f"Starting Flask server on {host}:{port} (debug={debug})")
+    app.run(debug=debug, port=port, host=host) 

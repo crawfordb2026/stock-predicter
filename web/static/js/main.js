@@ -3,6 +3,14 @@ document.addEventListener('DOMContentLoaded', function() {
     const stockSymbol = document.getElementById('stockSymbol');
     const period = document.getElementById('period');
     
+    // Dynamic API URL configuration
+    const API_CONFIG = {
+        // Try to use the same host as the current page, but with port 5000
+        baseUrl: `${window.location.protocol}//${window.location.hostname}:5000`,
+        // Fallback to localhost if needed
+        fallbackUrl: 'http://127.0.0.1:5000'
+    };
+    
     let priceChart = null;
 
     predictBtn.addEventListener('click', async function() {
@@ -15,7 +23,16 @@ document.addEventListener('DOMContentLoaded', function() {
         
         try {
             console.log('Sending prediction request...');
-            const response = await fetch('http://127.0.0.1:5000/predict', {
+            
+            // Try the dynamic API URL first, fallback to localhost
+            let apiUrl = API_CONFIG.baseUrl;
+            if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+                apiUrl = API_CONFIG.fallbackUrl;
+            }
+            
+            console.log(`Making request to: ${apiUrl}/predict`);
+            
+            const response = await fetch(`${apiUrl}/predict`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

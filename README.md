@@ -65,13 +65,35 @@ or use the provided script:
 ./start_server.sh
 ```
 
-2. **Open your browser**
-Navigate to `http://127.0.0.1:5000`
+The server will start on `http://127.0.0.1:5000` by default.
+
+2. **Open the web interface**
+   - **Option 1**: Open `web/index.html` directly in your browser
+   - **Option 2**: Use a simple web server:
+```bash
+# Using Python's built-in server
+cd web
+python -m http.server 8000
+# Then open http://localhost:8000
+```
 
 3. **Use the application**
 - Select a stock symbol from the dropdown
 - Choose a time period (3 months to 5 years)
 - Click "Predict" to get next-day price prediction
+
+### Port Configuration
+
+The application is flexible with ports:
+- **Backend (Flask)**: Runs on port 5000 by default
+- **Frontend**: Can be served from any port (5500, 8000, etc.)
+- **CORS**: Configured to allow requests from common development ports
+
+To run on a different port:
+```bash
+export PORT=8080
+python app.py
+```
 
 ### API Endpoints
 
@@ -85,6 +107,54 @@ Navigate to `http://127.0.0.1:5000`
     "period": "2y"
 }
 ```
+
+## 🚀 Deployment
+
+### Local Development
+```bash
+# Clone and setup
+git clone https://github.com/yourusername/stock-predictor.git
+cd stock-predictor
+python -m venv .venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+
+# Run the application
+python app.py
+```
+
+### Production Deployment
+
+#### Using Gunicorn (Recommended)
+```bash
+# Install gunicorn (already in requirements.txt)
+pip install gunicorn
+
+# Run with gunicorn
+gunicorn -w 4 -b 0.0.0.0:5000 app:app
+```
+
+#### Using Docker
+```bash
+# Build the image
+docker build -t stock-predictor .
+
+# Run the container
+docker run -p 5000:5000 stock-predictor
+```
+
+#### Environment Variables
+```bash
+export PORT=5000          # Server port
+export HOST=0.0.0.0       # Server host (use 0.0.0.0 for production)
+export FLASK_ENV=production  # Environment mode
+```
+
+### Cloud Deployment
+- **Heroku**: Ready for deployment with `requirements.txt` and `Procfile`
+- **Railway**: Compatible with automatic deployment
+- **DigitalOcean**: Works with their App Platform
+- **AWS/GCP**: Compatible with their container services
 
 ## 📊 Model Performance
 
