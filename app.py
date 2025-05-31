@@ -263,6 +263,159 @@ def _generate_mock_data(symbol, period):
     logging.info(f"Generated {len(df)} mock data points for {symbol}")
     return df
 
+def _fetch_alpha_vantage(symbol, period):
+    """Fetch data using Alpha Vantage API - cloud-friendly, no blocking"""
+    import requests
+    import pandas as pd
+    from datetime import datetime, timedelta
+    
+    # Free API key (you can get your own at https://www.alphavantage.co/support/#api-key)
+    API_KEY = "demo"  # Replace with real key for production
+    
+    # Alpha Vantage endpoint for daily data
+    url = f"https://www.alphavantage.co/query"
+    params = {
+        'function': 'TIME_SERIES_DAILY',
+        'symbol': symbol,
+        'apikey': API_KEY,
+        'outputsize': 'full'  # Get full historical data
+    }
+    
+    try:
+        response = requests.get(url, params=params, timeout=10)
+        data = response.json()
+        
+        if 'Time Series (Daily)' in data:
+            time_series = data['Time Series (Daily)']
+            
+            # Convert to DataFrame
+            df_data = []
+            for date_str, values in time_series.items():
+                df_data.append({
+                    'Date': pd.to_datetime(date_str),
+                    'Open': float(values['1. open']),
+                    'High': float(values['2. high']),
+                    'Low': float(values['3. low']),
+                    'Close': float(values['4. close']),
+                    'Volume': int(values['5. volume'])
+                })
+            
+            df = pd.DataFrame(df_data)
+            df.set_index('Date', inplace=True)
+            df.sort_index(inplace=True)
+            
+            # Filter by period
+            period_days = {
+                '3mo': 90, '6mo': 180, '1y': 365, 
+                '2y': 730, '5y': 1825, 'max': 2000
+            }
+            
+            days = period_days.get(period, 730)
+            cutoff_date = datetime.now() - timedelta(days=days)
+            df = df[df.index >= cutoff_date]
+            
+            logging.info(f"Alpha Vantage: fetched {len(df)} data points for {symbol}")
+            return df
+            
+        elif 'Error Message' in data:
+            logging.warning(f"Alpha Vantage error: {data['Error Message']}")
+            return None
+        elif 'Note' in data:
+            logging.warning(f"Alpha Vantage rate limit: {data['Note']}")
+            return None
+        else:
+            logging.warning(f"Alpha Vantage unexpected response: {data}")
+            return None
+            
+    except Exception as e:
+        logging.error(f"Alpha Vantage request failed: {str(e)}")
+        return None
+
+def _fetch_yahoo_alternative(symbol, period):
+    """Fetch from Yahoo Finance alternative endpoint that works better on cloud"""
+    import requests
+    import pandas as pd
+    from datetime import datetime, timedelta
+    import time
+    
+    try:
+        # Use Yahoo Finance's query2 endpoint which is less restricted
+        base_url = "https://query2.finance.yahoo.com/v8/finance/chart/"
+        
+        # Period mapping for Yahoo API
+        period_map = {
+            '3mo': '3mo',
+            '6mo': '6mo', 
+            '1y': '1y',
+            '2y': '2y',
+            '5y': '5y',
+            'max': 'max'
+        }
+        
+        yahoo_period = period_map.get(period, '2y')
+        
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'Accept': 'application/json',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+        }
+        
+        url = f"{base_url}{symbol}"
+        params = {
+            'period1': int((datetime.now() - timedelta(days=730)).timestamp()),
+            'period2': int(datetime.now().timestamp()),
+            'interval': '1d',
+            'includePrePost': 'false',
+            'events': 'div%2Csplit'
+        }
+        
+        response = requests.get(url, params=params, headers=headers, timeout=10)
+        
+        if response.status_code == 200:
+            data = response.json()
+            
+            if 'chart' in data and data['chart']['result']:
+                result = data['chart']['result'][0]
+                
+                timestamps = result['timestamp']
+                prices = result['indicators']['quote'][0]
+                
+                # Create DataFrame
+                df_data = []
+                for i, timestamp in enumerate(timestamps):
+                    if (prices['open'][i] is not None and 
+                        prices['high'][i] is not None and 
+                        prices['low'][i] is not None and 
+                        prices['close'][i] is not None and
+                        prices['volume'][i] is not None):
+                        
+                        df_data.append({
+                            'Date': pd.to_datetime(timestamp, unit='s'),
+                            'Open': float(prices['open'][i]),
+                            'High': float(prices['high'][i]),
+                            'Low': float(prices['low'][i]),
+                            'Close': float(prices['close'][i]),
+                            'Volume': int(prices['volume'][i])
+                        })
+                
+                if df_data:
+                    df = pd.DataFrame(df_data)
+                    df.set_index('Date', inplace=True)
+                    df.sort_index(inplace=True)
+                    
+                    logging.info(f"Yahoo alternative: fetched {len(df)} data points for {symbol}")
+                    return df
+        
+        logging.warning(f"Yahoo alternative failed for {symbol}")
+        return None
+        
+    except Exception as e:
+        logging.error(f"Yahoo alternative request failed: {str(e)}")
+        return None
+
 @app.route('/test', methods=['GET'])
 def test():
     return jsonify({'status': 'ok', 'message': 'Server is running'})
@@ -325,13 +478,17 @@ def predict():
         hist = None
         using_mock_data = False
         attempts = [
-            # Strategy 1: Custom session with headers
+            # Strategy 1: Yahoo Finance alternative endpoint (no API key needed)
+            lambda: _fetch_yahoo_alternative(symbol, period),
+            # Strategy 2: Custom session with headers (Yahoo Finance original)
             lambda: _fetch_with_session(symbol, period),
-            # Strategy 2: Direct yfinance with different parameters
+            # Strategy 3: Direct yfinance with different parameters
             lambda: _fetch_direct(symbol, period),
-            # Strategy 3: Alternative period if requested period fails
+            # Strategy 4: Alpha Vantage API (requires free API key)
+            lambda: _fetch_alpha_vantage(symbol, period),
+            # Strategy 5: Alternative period if requested period fails
             lambda: _fetch_alternative_period(symbol, period),
-            # Strategy 4: Mock data as final fallback (for demo purposes)
+            # Strategy 6: Mock data as final fallback (for demo purposes)
             lambda: _generate_mock_data(symbol, period),
         ]
         
@@ -340,7 +497,7 @@ def predict():
                 logging.info(f"Data fetch attempt {i+1} for {symbol}")
                 hist = attempt()
                 if hist is not None and len(hist) > 0:
-                    if i == 3:  # Mock data
+                    if i == 5:  # Mock data (now strategy 6)
                         using_mock_data = True
                         logging.info(f"Using mock data for demonstration: {len(hist)} data points")
                     else:
