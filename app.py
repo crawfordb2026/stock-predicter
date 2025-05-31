@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, send_from_directory, send_file
 from flask_cors import CORS
 import json
 import logging
@@ -13,6 +13,7 @@ from utils.sentiment_analyzer import SentimentAnalyzer
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import LSTM, Dense, Dropout
 import tensorflow as tf
+import os
 
 # Set up logging
 logging.basicConfig(level=logging.DEBUG)
@@ -38,6 +39,24 @@ CORS(app, resources={
 
 # Initialize sentiment analyzer
 sentiment_analyzer = SentimentAnalyzer()
+
+# Route to serve the main web interface
+@app.route('/')
+def home():
+    try:
+        return send_file('web/index.html')
+    except Exception as e:
+        logger.error(f"Error serving home page: {str(e)}")
+        return f"Error: {str(e)}", 500
+
+# Route to serve static files (CSS, JS, images)
+@app.route('/static/<path:filename>')
+def serve_static(filename):
+    try:
+        return send_from_directory('web/static', filename)
+    except Exception as e:
+        logger.error(f"Error serving static file {filename}: {str(e)}")
+        return f"Error: {str(e)}", 404
 
 def calculate_rsi(prices, period=14):
     delta = prices.diff()
