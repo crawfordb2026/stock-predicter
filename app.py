@@ -134,9 +134,17 @@ def predict():
         
         logging.info(f"Received prediction request for {symbol} over {period}")
         
-        # Get historical data
-        stock = yf.Ticker(symbol)
-        hist = stock.history(period=period)
+        # Validate inputs
+        if not symbol or not period:
+            return jsonify({'error': 'Missing symbol or period parameter'}), 400
+        
+        # Get historical data with timeout protection
+        try:
+            stock = yf.Ticker(symbol)
+            hist = stock.history(period=period)
+        except Exception as e:
+            logging.error(f"Error fetching data for {symbol}: {str(e)}")
+            return jsonify({'error': f'Could not fetch data for {symbol}. Please try a different stock.'}), 400
         
         if len(hist) < 30:
             return jsonify({'error': 'Not enough historical data available for prediction'}), 400
@@ -201,33 +209,31 @@ def predict():
         X_lstm_train, X_lstm_test = X_lstm[:lstm_train_size], X_lstm[lstm_train_size:]
         y_lstm_train, y_lstm_test = y_lstm[:lstm_train_size], y_lstm[lstm_train_size:]
         
-        # Train models
+        # Train models (optimized for speed)
         lr_model = LinearRegression()
         rf_model = RandomForestRegressor(
-            n_estimators=100, 
+            n_estimators=50,  # Reduced from 100 for speed
             random_state=42,
-            max_depth=5,
-            min_samples_split=10
+            max_depth=3,      # Reduced depth for speed
+            min_samples_split=20,
+            n_jobs=-1         # Use all CPU cores
         )
         gb_model = GradientBoostingRegressor(
-            n_estimators=200,  # Increased number of trees
+            n_estimators=50,  # Reduced from 200 for speed
             random_state=42,
-            max_depth=4,  # Slightly increased depth
-            learning_rate=0.05,  # Reduced learning rate for better generalization
-            min_samples_split=10,
-            subsample=0.8,  # Use 80% of samples for each tree
-            max_features='sqrt',  # Use sqrt of features for each split
-            validation_fraction=0.1,  # Use 10% of data for validation
-            n_iter_no_change=10,  # Stop if no improvement in 10 iterations
-            tol=1e-4  # Tolerance for early stopping
+            max_depth=3,      # Reduced depth for speed
+            learning_rate=0.1, # Increased learning rate for faster convergence
+            min_samples_split=20,
+            subsample=0.8,
+            max_features='sqrt'
         )
         
-        # Build and train LSTM model with bias correction
+        # Build and train LSTM model (optimized for speed)
         lstm_model = Sequential([
-            LSTM(units=32, return_sequences=True, input_shape=(sequence_length, X_scaled.shape[1])),
-            Dropout(0.2),
-            LSTM(units=16, return_sequences=False),
-            Dropout(0.2),
+            LSTM(units=16, return_sequences=True, input_shape=(sequence_length, X_scaled.shape[1])),  # Reduced units
+            Dropout(0.1),     # Reduced dropout
+            LSTM(units=8, return_sequences=False),  # Reduced units
+            Dropout(0.1),     # Reduced dropout
             Dense(units=1, activation='linear')
         ])
         lstm_model.compile(
@@ -237,8 +243,8 @@ def predict():
         lstm_model.fit(
             X_lstm_train, 
             y_lstm_train, 
-            epochs=20,
-            batch_size=32, 
+            epochs=5,         # Reduced from 20 for speed
+            batch_size=64,    # Increased batch size for speed
             verbose=0,
             validation_split=0.1
         )

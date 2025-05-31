@@ -5,9 +5,9 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Dynamic API URL configuration
     const API_CONFIG = {
-        // Try to use the same host as the current page, but with port 5000
-        baseUrl: `${window.location.protocol}//${window.location.hostname}:5000`,
-        // Fallback to localhost if needed
+        // Use the same host and port as the current page
+        baseUrl: `${window.location.protocol}//${window.location.host}`,
+        // Fallback to localhost:5000 for local development
         fallbackUrl: 'http://127.0.0.1:5000'
     };
     
