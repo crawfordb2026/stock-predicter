@@ -262,7 +262,7 @@ def predict():
             if period in ['3mo', '6mo']:
                 try:
                     logging.info(f"Trying longer period '1y' for {symbol}")
-                    hist = stock.history(period='1y')
+                    hist = _fetch_direct(symbol, '1y')  # Use our helper function instead of undefined 'stock'
                     if len(hist) < 30:
                         return jsonify({'error': f'Not enough historical data available for {symbol}. Got {len(hist)} data points, need at least 30. Try a different stock.'}), 400
                 except:
