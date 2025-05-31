@@ -1,6 +1,19 @@
 # Advanced Stock Price Predictor
 
+🚀 **[Live Demo](https://stock-predicter.onrender.com)** | 📱 **[Try it Now!](https://stock-predicter.onrender.com)**
+
 A sophisticated web application that uses multiple machine learning models to predict stock prices for the next trading day. The system combines LSTM neural networks, Random Forest, Gradient Boosting, and Linear Regression models to provide accurate ensemble predictions with confidence scores.
+
+## 🌐 Quick Deploy
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/crawfordb2026/stock-predicter)
+
+**One-Click Deployment Options:**
+- **Render**: [Deploy Now](https://render.com/deploy?repo=https://github.com/crawfordb2026/stock-predicter) (Recommended)
+- **Railway**: [Deploy Now](https://railway.app/new/template/oNvL-o)
+- **Heroku**: Use the "Deploy to Heroku" button (if available)
+
+**GitHub Repository**: [https://github.com/crawfordb2026/stock-predicter](https://github.com/crawfordb2026/stock-predicter)
 
 ## 🚀 Features
 
