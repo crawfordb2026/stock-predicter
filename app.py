@@ -29,7 +29,9 @@ CORS(app, resources={
             "http://127.0.0.1:5500", 
             "http://localhost:5500",
             "http://127.0.0.1:8000", 
-            "http://localhost:8000"
+            "http://localhost:8000",
+            "https://stock-predicter.onrender.com",
+            "https://stock-predicter-*.onrender.com"
         ],
         "methods": ["GET", "POST", "OPTIONS"],
         "allow_headers": ["Content-Type", "Accept"],
@@ -53,12 +55,6 @@ def home():
 @app.route('/static/<path:filename>')
 def serve_static(filename):
     try:
-        logger.info(f"Attempting to serve static file: {filename}")
-        static_dir = os.path.join(os.getcwd(), 'web', 'static')
-        logger.info(f"Static directory: {static_dir}")
-        file_path = os.path.join(static_dir, filename)
-        logger.info(f"Full file path: {file_path}")
-        logger.info(f"File exists: {os.path.exists(file_path)}")
         return send_from_directory('web/static', filename)
     except Exception as e:
         logger.error(f"Error serving static file {filename}: {str(e)}")
