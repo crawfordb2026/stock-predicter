@@ -125,6 +125,38 @@ def calculate_obv(data):
 def test():
     return jsonify({'status': 'ok', 'message': 'Server is running'})
 
+@app.route('/debug/<symbol>', methods=['GET'])
+def debug_data(symbol):
+    """Debug endpoint to test data fetching for a specific symbol"""
+    try:
+        stock = yf.Ticker(symbol)
+        
+        # Test different periods
+        periods = ['1mo', '3mo', '6mo', '1y', '2y']
+        results = {}
+        
+        for period in periods:
+            try:
+                hist = stock.history(period=period)
+                results[period] = {
+                    'data_points': len(hist),
+                    'date_range': f"{hist.index[0].strftime('%Y-%m-%d')} to {hist.index[-1].strftime('%Y-%m-%d')}" if len(hist) > 0 else "No data",
+                    'has_data': len(hist) > 0
+                }
+            except Exception as e:
+                results[period] = {
+                    'error': str(e),
+                    'has_data': False
+                }
+        
+        return jsonify({
+            'symbol': symbol,
+            'results': results,
+            'recommended_period': next((p for p, r in results.items() if r.get('data_points', 0) >= 30), None)
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/predict', methods=['POST'])
 def predict():
     try:
@@ -142,12 +174,24 @@ def predict():
         try:
             stock = yf.Ticker(symbol)
             hist = stock.history(period=period)
+            logging.info(f"Fetched {len(hist)} data points for {symbol} over {period}")
         except Exception as e:
             logging.error(f"Error fetching data for {symbol}: {str(e)}")
             return jsonify({'error': f'Could not fetch data for {symbol}. Please try a different stock.'}), 400
         
         if len(hist) < 30:
-            return jsonify({'error': 'Not enough historical data available for prediction'}), 400
+            logging.warning(f"Not enough data for {symbol}: got {len(hist)} points, need at least 30")
+            # Try with a longer period if the original period was short
+            if period in ['3mo', '6mo']:
+                try:
+                    logging.info(f"Trying longer period '1y' for {symbol}")
+                    hist = stock.history(period='1y')
+                    if len(hist) < 30:
+                        return jsonify({'error': f'Not enough historical data available for {symbol}. Got {len(hist)} data points, need at least 30. Try a different stock.'}), 400
+                except:
+                    return jsonify({'error': f'Not enough historical data available for {symbol}. Try a different stock or longer time period.'}), 400
+            else:
+                return jsonify({'error': f'Not enough historical data available for {symbol}. Got {len(hist)} data points, need at least 30. Try a different stock.'}), 400
             
         # Calculate features with shorter windows for shorter periods
         window_20 = min(20, len(hist) // 2)
