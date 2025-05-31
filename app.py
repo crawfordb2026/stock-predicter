@@ -14,6 +14,7 @@ from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import LSTM, Dense, Dropout
 import tensorflow as tf
 import os
+import requests
 
 # Set up logging
 logging.basicConfig(level=logging.DEBUG)
@@ -129,7 +130,16 @@ def test():
 def debug_data(symbol):
     """Debug endpoint to test data fetching for a specific symbol"""
     try:
-        stock = yf.Ticker(symbol)
+        import yfinance as yf
+        import requests
+        
+        # Set up proper headers
+        session = requests.Session()
+        session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        })
+        
+        stock = yf.Ticker(symbol, session=session)
         
         # Test different periods
         periods = ['1mo', '3mo', '6mo', '1y', '2y']
@@ -170,14 +180,31 @@ def predict():
         if not symbol or not period:
             return jsonify({'error': 'Missing symbol or period parameter'}), 400
         
-        # Get historical data with timeout protection
+        # Get historical data with timeout protection and proper headers
         try:
-            stock = yf.Ticker(symbol)
+            # Configure yfinance to work in cloud environments
+            import yfinance as yf
+            import requests
+            
+            # Set up proper headers to avoid being blocked by Yahoo Finance
+            session = requests.Session()
+            session.headers.update({
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            })
+            
+            stock = yf.Ticker(symbol, session=session)
             hist = stock.history(period=period)
             logging.info(f"Fetched {len(hist)} data points for {symbol} over {period}")
+            
+            # If no data, try alternative approach
+            if len(hist) == 0:
+                logging.warning(f"No data with session, trying direct approach for {symbol}")
+                stock = yf.Ticker(symbol)
+                hist = stock.history(period=period, timeout=10)
+                
         except Exception as e:
             logging.error(f"Error fetching data for {symbol}: {str(e)}")
-            return jsonify({'error': f'Could not fetch data for {symbol}. Please try a different stock.'}), 400
+            return jsonify({'error': f'Could not fetch data for {symbol}. Yahoo Finance may be temporarily unavailable. Please try again in a few minutes.'}), 400
         
         if len(hist) < 30:
             logging.warning(f"Not enough data for {symbol}: got {len(hist)} points, need at least 30")
