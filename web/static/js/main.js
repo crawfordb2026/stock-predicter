@@ -7,8 +7,8 @@ document.addEventListener('DOMContentLoaded', function() {
     const API_CONFIG = {
         // Use the same host and port as the current page
         baseUrl: `${window.location.protocol}//${window.location.host}`,
-        // Fallback to localhost:5000 for local development
-        fallbackUrl: 'http://127.0.0.1:5000'
+        // Fallback to localhost:5001 for local development
+        fallbackUrl: 'http://127.0.0.1:5001'
     };
     
     let priceChart = null;
@@ -75,7 +75,8 @@ document.addEventListener('DOMContentLoaded', function() {
         changeElement.className = `value ${change >= 0 ? 'positive' : 'negative'}`;
         
         // Update prediction confidence
-        document.getElementById('predictionConfidence').textContent = `${(data.prediction_confidence || 0).toFixed(1)}%`;
+        const confidence = data.prediction_confidence || 0;
+        document.getElementById('predictionConfidence').textContent = `${confidence.toFixed(1)}%`;
         
         // Update technical analysis
         const technicalAnalysis = data.technical_analysis || {};
@@ -126,7 +127,16 @@ document.addEventListener('DOMContentLoaded', function() {
                         label: 'Predicted Price',
                         data: chartData.predicted,
                         borderColor: 'rgb(255, 99, 132)',
-                        tension: 0.1
+                        tension: 0.1,
+                        pointRadius: function(context) {
+                            // Only show point for the last data point (prediction)
+                            return context.dataIndex === context.dataset.data.length - 1 ? 6 : 0;
+                        },
+                        pointStyle: 'circle',
+                        pointBackgroundColor: 'rgb(255, 99, 132)',
+                        pointBorderColor: '#fff',
+                        pointBorderWidth: 2,
+                        showLine: false  // Don't show lines between points
                     }
                 ]
             },
@@ -136,9 +146,25 @@ document.addEventListener('DOMContentLoaded', function() {
                     title: {
                         display: true,
                         text: 'Stock Price Prediction'
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                if (context.dataset.label === 'Predicted Price' && context.dataIndex === context.dataset.data.length - 1) {
+                                    return `Predicted Price: $${context.raw.toFixed(2)}`;
+                                }
+                                return `${context.dataset.label}: $${context.raw.toFixed(2)}`;
+                            }
+                        }
                     }
                 },
                 scales: {
+                    x: {
+                        ticks: {
+                            maxRotation: 45,
+                            minRotation: 45
+                        }
+                    },
                     y: {
                         beginAtZero: false
                     }

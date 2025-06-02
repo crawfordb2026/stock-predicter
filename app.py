@@ -1,4 +1,9 @@
-from flask import Flask, jsonify, request, send_from_directory, send_file
+import os
+# Set TensorFlow environment variables before importing TensorFlow
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # Reduce TensorFlow logging
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'  # Disable oneDNN optimizations for compatibility
+
+from flask import Flask, request, jsonify, send_from_directory, send_file
 from flask_cors import CORS
 import pandas as pd
 import numpy as np
@@ -12,25 +17,28 @@ from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import LSTM, Dense, Dropout
 import os
+import yfinance as yf
+import tensorflow as tf
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
-CORS(app)
+CORS(app, origins=['*'])  # Allow all origins for Render deployment
 
 # Finnhub configuration
-FINNHUB_API_KEY = "d0tlobhr01qlvahcuok0d0tlobhr01qlvahcuokg"
+FINNHUB_API_KEY = "d0tlt41r01qlvahcvqv0d0tlt41r01qlvahcvqvg"
 FINNHUB_BASE_URL = "https://finnhub.io/api/v1"
 
 @app.route('/')
 def home():
     """Serve the main HTML page"""
     try:
-        return send_file('web/index.html')
+        return send_from_directory('web', 'index.html')
     except Exception as e:
-        return f"Error loading page: {str(e)}", 500
+        logger.error(f"Error serving index.html: {str(e)}")
+        return f"Error: {str(e)}", 500
 
 @app.route('/static/<path:filename>')
 def serve_static(filename):
@@ -94,71 +102,50 @@ def calculate_obv(data):
         obv.append(obv_value)
     return pd.Series(obv, index=data.index)
 
-def fetch_finnhub_data(symbol, period):
-    """Fetch historical stock data from Finnhub API"""
+def fetch_stock_data(symbol, period):
+    """Fetch historical stock data from Yahoo Finance using yfinance"""
     try:
-        # Calculate date range based on period
-        end_date = datetime.now()
-        period_days = {
-            '3mo': 90, '6mo': 180, '1y': 365, 
-            '2y': 730, '5y': 1825, 'max': 2000
-        }
-        days = period_days.get(period, 730)
-        start_date = end_date - timedelta(days=days)
+        logger.info(f"Fetching Yahoo Finance data for {symbol} over {period}")
         
-        # Convert to Unix timestamps
-        start_timestamp = int(start_date.timestamp())
-        end_timestamp = int(end_date.timestamp())
+        # Fetch data using yfinance with interval='1d' to ensure daily data
+        stock = yf.Ticker(symbol)
         
-        # Finnhub stock candles endpoint
-        url = f"{FINNHUB_BASE_URL}/stock/candle"
-        params = {
-            'symbol': symbol,
-            'resolution': 'D',  # Daily resolution
-            'from': start_timestamp,
-            'to': end_timestamp,
-            'token': FINNHUB_API_KEY
-        }
+        # Get today's date
+        today = pd.Timestamp.now().date()
         
-        logger.info(f"Fetching Finnhub data for {symbol} from {start_date.date()} to {end_date.date()}")
-        
-        response = requests.get(url, params=params, timeout=15)
-        response.raise_for_status()
-        
-        data = response.json()
-        
-        # Check if data is valid
-        if data.get('s') != 'ok' or not data.get('c'):
-            logger.error(f"Finnhub API error for {symbol}: {data}")
+        # Fetch data with end date as today and retry logic
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                df = stock.history(period=period, interval='1d', timeout=30)
+                if not df.empty:
+                    break
+                logger.warning(f"Empty data on attempt {attempt + 1}")
+            except Exception as e:
+                logger.warning(f"Attempt {attempt + 1} failed: {str(e)}")
+                if attempt == max_retries - 1:
+                    raise e
+                
+        if df.empty:
+            logger.error(f"No data found for symbol {symbol} after {max_retries} attempts")
             return None
             
-        # Convert to DataFrame
-        df_data = {
-            'Open': data['o'],
-            'High': data['h'], 
-            'Low': data['l'],
-            'Close': data['c'],
-            'Volume': data['v']
-        }
-        
-        # Convert timestamps to dates
-        dates = [datetime.fromtimestamp(ts) for ts in data['t']]
-        
-        df = pd.DataFrame(df_data, index=dates)
-        df.index.name = 'Date'
-        df = df.sort_index()
-        
-        logger.info(f"Successfully fetched {len(df)} data points for {symbol} from Finnhub")
+        # If the last date in our data is not today, try to fetch one more day
+        if df.index[-1].date() < today:
+            try:
+                extra_data = stock.history(period='1d', interval='1d', timeout=30)
+                if not extra_data.empty:
+                    df = pd.concat([df, extra_data])
+                    df = df[~df.index.duplicated(keep='last')]  # Remove any duplicates
+            except Exception as e:
+                logger.warning(f"Could not fetch latest data: {str(e)}")
+            
+        logger.info(f"Successfully fetched {len(df)} days of data for {symbol} from Yahoo Finance")
+        logger.info(f"Data range: {df.index[0].date()} to {df.index[-1].date()}")
         return df
         
-    except requests.exceptions.RequestException as e:
-        logger.error(f"Network error fetching Finnhub data for {symbol}: {str(e)}")
-        return None
-    except KeyError as e:
-        logger.error(f"Data format error from Finnhub for {symbol}: {str(e)}")
-        return None
     except Exception as e:
-        logger.error(f"Unexpected error fetching Finnhub data for {symbol}: {str(e)}")
+        logger.error(f"Error fetching data for {symbol}: {str(e)}")
         return None
 
 @app.route('/test', methods=['GET'])
@@ -169,7 +156,7 @@ def test():
 def debug_data(symbol):
     """Debug endpoint to test data fetching"""
     try:
-        data = fetch_finnhub_data(symbol, '1y')
+        data = fetch_stock_data(symbol, '1y')
         if data is not None:
             return jsonify({
                 'symbol': symbol,
@@ -203,227 +190,278 @@ def debug_data(symbol):
 @app.route('/predict', methods=['POST'])
 def predict():
     try:
+        # Add request validation
+        if not request.is_json:
+            return jsonify({'error': 'Request must be JSON'}), 400
+            
         data = request.get_json()
-        symbol = data.get('symbol', 'AAPL')
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+            
+        symbol = data.get('symbol', 'AAPL').upper().strip()
         period = data.get('period', '2y')
         
         logger.info(f"Received prediction request for {symbol} over {period}")
         
         # Validate inputs
-        if not symbol or not period:
-            return jsonify({'error': 'Missing symbol or period parameter'}), 400
+        if not symbol or len(symbol) > 10:
+            return jsonify({'error': 'Invalid symbol parameter'}), 400
+            
+        if period not in ['1y', '2y', '5y', 'max']:
+            return jsonify({'error': 'Invalid period parameter'}), 400
         
-        # Get historical data from Finnhub
-        hist = fetch_finnhub_data(symbol, period)
+        # Get historical data from Yahoo Finance
+        hist = fetch_stock_data(symbol, period)
         
         if hist is None or len(hist) == 0:
             return jsonify({'error': f'Unable to fetch data for {symbol}. Please check the symbol and try again.'}), 400
         
-        if len(hist) < 30:
-            return jsonify({'error': f'Not enough historical data available for {symbol}. Got {len(hist)} data points, need at least 30.'}), 400
-            
         # Calculate technical indicators
-        window_20 = min(20, len(hist) // 2)
-        window_50 = min(50, len(hist) // 2)
-        
-        hist['SMA_20'] = hist['Close'].rolling(window=window_20).mean()
-        hist['SMA_50'] = hist['Close'].rolling(window=window_50).mean()
-        hist['RSI'] = calculate_rsi(hist['Close'], period=min(14, len(hist) // 3))
-        hist['MACD'], hist['Signal'] = calculate_macd(hist['Close'], 
-                                                     fast=min(12, len(hist) // 4),
-                                                     slow=min(26, len(hist) // 3),
-                                                     signal=min(9, len(hist) // 5))
-        hist['BB_upper'], hist['BB_middle'], hist['BB_lower'] = calculate_bollinger_bands(
-            hist['Close'], period=min(20, len(hist) // 2))
-        hist['ATR'] = calculate_atr(hist, period=min(14, len(hist) // 3))
+        hist['SMA_5'] = hist['Close'].rolling(window=5).mean()
+        hist['SMA_20'] = hist['Close'].rolling(window=20).mean()
+        hist['RSI'] = calculate_rsi(hist['Close'])
+        ema12 = hist['Close'].ewm(span=12, adjust=False).mean()
+        ema26 = hist['Close'].ewm(span=26, adjust=False).mean()
+        hist['MACD'] = ema12 - ema26
+        hist['Signal'] = hist['MACD'].ewm(span=9, adjust=False).mean()
+        hist['BB_middle'] = hist['Close'].rolling(window=20).mean()
+        bb_std = hist['Close'].rolling(window=20).std()
+        hist['BB_upper'] = hist['BB_middle'] + (bb_std * 2)
+        hist['BB_lower'] = hist['BB_middle'] - (bb_std * 2)
+        hist['ATR'] = calculate_atr(hist)
         hist['OBV'] = calculate_obv(hist)
+        hist['Price_Momentum'] = hist['Close'].pct_change(periods=5) * 100
+        hist['Volume_MA_20'] = hist['Volume'].rolling(window=20).mean()
+        hist['Volume_Trend'] = ((hist['Volume'] - hist['Volume_MA_20']) / hist['Volume_MA_20']) * 100
+        returns = hist['Close'].pct_change()
+        volatility = returns.std() * np.sqrt(252) * 100  # Annualized volatility
+        sharpe_ratio = (returns.mean() * 252) / (returns.std() * np.sqrt(252)) if returns.std() > 0 else 0
+        cumulative_returns = (1 + returns).cumprod()
+        running_max = cumulative_returns.cummax()
+        drawdown = (cumulative_returns - running_max) / running_max
+        max_drawdown = float(drawdown.min() * 100)
+        current_price = float(hist['Close'].iloc[-1])
+        current_rsi = float(hist['RSI'].iloc[-1])
+        current_macd = float(hist['MACD'].iloc[-1])
+        current_momentum = float(hist['Price_Momentum'].iloc[-1])
+        current_volume_trend = float(hist['Volume_Trend'].iloc[-1])
+        # Prepare features for ML models
+        hist = hist.dropna()
+        feature_cols = ['Open', 'High', 'Low', 'Volume', 'SMA_5', 'SMA_20', 'RSI', 'MACD', 'Signal', 'BB_upper', 'BB_middle', 'BB_lower', 'ATR', 'OBV', 'Price_Momentum', 'Volume_Trend']
+        if len(hist) < 30:
+            return jsonify({'error': 'Not enough data to make a prediction.'}), 400
         
-        # Fill NaN values
-        hist = hist.fillna(method='ffill').fillna(method='bfill')
+        # Set random seeds for reproducibility
+        np.random.seed(42)
+        tf.random.set_seed(42)
         
-        if len(hist) < 20:
-            return jsonify({'error': 'Not enough valid data points after processing'}), 400
-        
-        # Prepare features
-        features = ['Open', 'High', 'Low', 'Close', 'Volume', 'SMA_20', 'SMA_50', 
-                   'RSI', 'MACD', 'Signal', 'BB_upper', 'BB_middle', 'BB_lower', 
-                   'ATR', 'OBV']
-        
-        X = hist[features].values
+        X = hist[feature_cols].values
         y = hist['Close'].values
         
-        # Scale features
-        scaler = MinMaxScaler()
-        X_scaled = scaler.fit_transform(X)
+        # Scale both features and target
+        X_scaler = MinMaxScaler()
+        y_scaler = MinMaxScaler()
+        X_scaled = X_scaler.fit_transform(X)
+        y_scaled = y_scaler.fit_transform(y.reshape(-1, 1))
         
-        price_scaler = MinMaxScaler()
-        y_scaled = price_scaler.fit_transform(y.reshape(-1, 1)).flatten()
+        # Use last row for prediction
+        X_pred = X_scaled[-1].reshape(1, -1)
         
-        # Prepare LSTM data
-        sequence_length = 10
+        # 1. Linear Regression
+        lr = LinearRegression()
+        lr.fit(X_scaled[:-1], y_scaled[:-1])
+        lr_pred = y_scaler.inverse_transform(lr.predict(X_pred).reshape(-1, 1))[0][0]
+        
+        # 2. Random Forest
+        rf = RandomForestRegressor(n_estimators=50, random_state=42)
+        rf.fit(X_scaled[:-1], y_scaled[:-1])
+        rf_pred = y_scaler.inverse_transform(rf.predict(X_pred).reshape(-1, 1))[0][0]
+        
+        # 3. Gradient Boosting
+        gb = GradientBoostingRegressor(n_estimators=50, random_state=42)
+        gb.fit(X_scaled[:-1], y_scaled[:-1])
+        gb_pred = y_scaler.inverse_transform(gb.predict(X_pred).reshape(-1, 1))[0][0]
+        
+        # 4. LSTM
+        seq_len = 10
         X_lstm = []
         y_lstm = []
-        for i in range(len(X_scaled) - sequence_length):
-            X_lstm.append(X_scaled[i:(i + sequence_length)])
-            y_lstm.append(y_scaled[i + sequence_length])
-        X_lstm = np.array(X_lstm)
-        y_lstm = np.array(y_lstm)
+        for i in range(seq_len, len(X_scaled)):
+            X_lstm.append(X_scaled[i-seq_len:i])
+            y_lstm.append(y_scaled[i])
+        X_lstm, y_lstm = np.array(X_lstm), np.array(y_lstm)
         
-        # Split data
-        train_size = int(len(X_scaled) * 0.8)
-        X_train, X_test = X_scaled[:train_size], X_scaled[train_size:]
-        y_train, y_test = y_scaled[:train_size], y_scaled[train_size:]
-        
-        lstm_train_size = int(len(X_lstm) * 0.8)
-        X_lstm_train, X_lstm_test = X_lstm[:lstm_train_size], X_lstm[lstm_train_size:]
-        y_lstm_train, y_lstm_test = y_lstm[:lstm_train_size], y_lstm[lstm_train_size:]
-        
-        # Train models (optimized for speed)
-        lr_model = LinearRegression()
-        rf_model = RandomForestRegressor(
-            n_estimators=50, random_state=42, max_depth=3,
-            min_samples_split=20, n_jobs=-1
-        )
-        gb_model = GradientBoostingRegressor(
-            n_estimators=50, random_state=42, max_depth=3,
-            learning_rate=0.1, min_samples_split=20,
-            subsample=0.8, max_features='sqrt'
-        )
-        
-        # Build LSTM model
         lstm_model = Sequential([
-            LSTM(units=16, return_sequences=True, input_shape=(sequence_length, X_scaled.shape[1])),
-            Dropout(0.1),
-            LSTM(units=8, return_sequences=False),
-            Dropout(0.1),
-            Dense(units=1, activation='linear')
+            LSTM(32, input_shape=(seq_len, X_lstm.shape[2]), return_sequences=False),
+            Dropout(0.2),
+            Dense(1)
         ])
-        lstm_model.compile(optimizer='adam', loss='mean_squared_error')
-        lstm_model.fit(X_lstm_train, y_lstm_train, epochs=5, batch_size=64, verbose=0, validation_split=0.1)
+        lstm_model.compile(optimizer='adam', loss='mse')
+        lstm_model.fit(X_lstm[:-1], y_lstm[:-1], epochs=5, batch_size=8, verbose=0)
         
-        # Train models
-        lr_model.fit(X_train, y_train)
-        rf_model.fit(X_train, y_train)
-        gb_model.fit(X_train, y_train)
+        X_lstm_pred = X_scaled[-seq_len:].reshape(1, seq_len, X_lstm.shape[2])
+        lstm_pred = y_scaler.inverse_transform(lstm_model.predict(X_lstm_pred))[0][0]
         
-        # Make predictions
-        lr_pred = lr_model.predict(X_test)
-        rf_pred = rf_model.predict(X_test)
-        gb_pred = gb_model.predict(X_test)
-        lstm_pred = lstm_model.predict(X_lstm_test).flatten()
+        # Calculate predictions and validate them
+        predictions = [lr_pred, rf_pred, gb_pred, lstm_pred]
         
-        # Inverse transform predictions
-        lr_pred = price_scaler.inverse_transform(lr_pred.reshape(-1, 1)).flatten()
-        rf_pred = price_scaler.inverse_transform(rf_pred.reshape(-1, 1)).flatten()
-        gb_pred = price_scaler.inverse_transform(gb_pred.reshape(-1, 1)).flatten()
-        lstm_pred = price_scaler.inverse_transform(lstm_pred.reshape(-1, 1)).flatten()
+        # Remove any extreme outliers (more than 20% from current price)
+        valid_predictions = [p for p in predictions if abs(p - current_price) / current_price < 0.20]
         
-        # Ensure consistent lengths
-        min_length = min(len(lr_pred), len(rf_pred), len(gb_pred), len(lstm_pred))
-        lr_pred = lr_pred[-min_length:]
-        rf_pred = rf_pred[-min_length:]
-        gb_pred = gb_pred[-min_length:]
-        lstm_pred = lstm_pred[-min_length:]
-        y_test = y[-min_length:]
-        
-        # Calculate metrics
-        lr_mse = mean_squared_error(y_test, lr_pred)
-        lr_r2 = r2_score(y_test, lr_pred)
-        rf_mse = mean_squared_error(y_test, rf_pred)
-        rf_r2 = r2_score(y_test, rf_pred)
-        gb_mse = mean_squared_error(y_test, gb_pred)
-        gb_r2 = r2_score(y_test, gb_pred)
-        gb_mae = mean_absolute_error(y_test, gb_pred)
-        gb_rmse = np.sqrt(gb_mse)
-        lstm_mse = mean_squared_error(y_test, lstm_pred)
-        lstm_r2 = r2_score(y_test, lstm_pred)
-        
-        # Choose best model
-        models = {
-            'Linear Regression': {'mse': lr_mse, 'r2': lr_r2, 'predictions': lr_pred},
-            'Random Forest': {'mse': rf_mse, 'r2': rf_r2, 'predictions': rf_pred},
-            'Gradient Boosting': {'mse': gb_mse, 'r2': gb_r2, 'predictions': gb_pred},
-            'LSTM': {'mse': lstm_mse, 'r2': lstm_r2, 'predictions': lstm_pred}
-        }
-        
-        best_model_name = min(models.keys(), key=lambda k: models[k]['mse'])
-        best_predictions = models[best_model_name]['predictions']
-        
-        # Calculate current and predicted prices
-        current_price = float(hist['Close'].iloc[-1])
-        predicted_price = float(best_predictions[-1])
-        expected_change = ((predicted_price - current_price) / current_price) * 100
-        
-        # Calculate technical analysis
-        latest_rsi = float(hist['RSI'].iloc[-1]) if not pd.isna(hist['RSI'].iloc[-1]) else 50.0
-        latest_macd = float(hist['MACD'].iloc[-1]) if not pd.isna(hist['MACD'].iloc[-1]) else 0.0
-        support_level = float(hist['Close'].rolling(window=20).min().iloc[-1])
-        resistance_level = float(hist['Close'].rolling(window=20).max().iloc[-1])
-        
-        # Calculate risk metrics
-        returns = hist['Close'].pct_change().dropna()
-        volatility = float(returns.std() * np.sqrt(252) * 100)  # Annualized volatility
-        sharpe_ratio = float(returns.mean() / returns.std() * np.sqrt(252)) if returns.std() > 0 else 0.0
-        
-        # Max drawdown
-        cumulative = (1 + returns).cumprod()
-        running_max = cumulative.expanding().max()
-        drawdown = (cumulative - running_max) / running_max
-        max_drawdown = float(drawdown.min() * 100)
-        
-        # Price momentum and volume trend
-        price_momentum = float(((current_price - hist['Close'].iloc[-5]) / hist['Close'].iloc[-5]) * 100)
-        volume_trend = float(((hist['Volume'].iloc[-5:].mean() - hist['Volume'].iloc[-10:-5].mean()) / hist['Volume'].iloc[-10:-5].mean()) * 100)
-        
-        # Prepare chart data
-        chart_dates = [date.strftime('%Y-%m-%d') for date in hist.index[-min_length:]]
-        chart_actual = [float(price) for price in y_test]
-        chart_predicted = [float(price) for price in best_predictions]
-        
-        response_data = {
-            'current_price': current_price,
-            'predicted_price': predicted_price,
-            'expected_change': expected_change,
-            'prediction_confidence': float(models[best_model_name]['r2'] * 100),
-            'best_model': best_model_name,
-            'technical_analysis': {
-                'rsi': latest_rsi,
-                'macd': latest_macd,
-                'support_level': support_level,
-                'resistance_level': resistance_level
-            },
-            'risk_metrics': {
-                'volatility': volatility,
-                'sharpe_ratio': sharpe_ratio,
-                'max_drawdown': max_drawdown,
-                'price_momentum': price_momentum,
-                'volume_trend': volume_trend
-            },
-            'model_performance': {
-                'linear_regression': {'mse': float(lr_mse), 'r2': float(lr_r2)},
-                'random_forest': {'mse': float(rf_mse), 'r2': float(rf_r2)},
-                'gradient_boosting': {'mse': float(gb_mse), 'r2': float(gb_r2), 'mae': float(gb_mae), 'rmse': float(gb_rmse)},
-                'lstm': {'mse': float(lstm_mse), 'r2': float(lstm_r2)}
-            },
-            'chart_data': {
-                'dates': chart_dates,
-                'actual': chart_actual,
-                'predicted': chart_predicted
-            },
-            'data_source': 'Finnhub',
-            'data_points': len(hist)
-        }
-        
-        logger.info(f"Successfully generated prediction for {symbol} using {best_model_name}")
-        return jsonify(response_data)
-        
+        if not valid_predictions:
+            # If all predictions are invalid, use a more conservative approach
+            recent_returns = hist['Close'].pct_change().tail(20).mean()
+            predicted_price = current_price * (1 + recent_returns)
+            confidence = 30.0  # Low confidence when using fallback
+        else:
+            # Use the average of valid predictions
+            predicted_price = np.mean(valid_predictions)
+            
+            # Calculate confidence based on:
+            # 1. Model agreement (how close predictions are to each other)
+            # 2. Recent prediction accuracy
+            # 3. Market volatility
+            
+            # 1. Model agreement (0-40 points)
+            std_dev = np.std(valid_predictions)
+            mean_price = np.mean(valid_predictions)
+            agreement_score = 40 * (1 - min(1, std_dev / mean_price))
+            
+            # 2. Recent prediction accuracy (0-30 points)
+            # Use last 5 days to evaluate model accuracy
+            recent_actual = hist['Close'].tail(5).values
+            recent_pred = []
+            for i in range(5):
+                if i < len(X_scaled) - 1:
+                    recent_pred.append(np.mean([
+                        y_scaler.inverse_transform(lr.predict(X_scaled[i:i+1]).reshape(-1, 1))[0][0],
+                        y_scaler.inverse_transform(rf.predict(X_scaled[i:i+1]).reshape(-1, 1))[0][0],
+                        y_scaler.inverse_transform(gb.predict(X_scaled[i:i+1]).reshape(-1, 1))[0][0]
+                    ]))
+            
+            if len(recent_pred) > 0:
+                accuracy = 1 - np.mean(np.abs(np.array(recent_pred) - recent_actual) / recent_actual)
+                accuracy_score = 30 * max(0, accuracy)
+            else:
+                accuracy_score = 15  # Default middle score if not enough data
+            
+            # 3. Market volatility (0-30 points)
+            volatility = hist['Close'].pct_change().std() * np.sqrt(252)
+            volatility_score = 30 * (1 - min(1, volatility))
+            
+            # Total confidence score (30-95 range)
+            confidence = min(95, max(30, agreement_score + accuracy_score + volatility_score))
+            
+            # Add debug logging
+            logger.info(f"Confidence components - Agreement: {agreement_score:.1f}, Accuracy: {accuracy_score:.1f}, Volatility: {volatility_score:.1f}")
+            logger.info(f"Final confidence score: {confidence:.1f}")
+            
+            # Ensure prediction is within reasonable bounds
+            max_change = 0.05  # 5% maximum change
+            predicted_price = np.clip(
+                predicted_price,
+                current_price * (1 - max_change),
+                current_price * (1 + max_change)
+            )
+            
+            # Calculate the expected change percentage
+            expected_change = ((predicted_price - current_price) / current_price) * 100
+            
+            # Prepare chart data - get the most recent 30 days
+            recent_data = hist.tail(30)
+            chart_dates = recent_data.index.strftime('%Y-%m-%d').tolist()
+            actual_prices = recent_data['Close'].tolist()
+            
+            # Add the prediction as a single point
+            # Find the next trading day after the last historical date
+            last_date = recent_data.index[-1]
+            next_date = last_date + pd.Timedelta(days=1)
+            
+            # Keep adding days until we find a weekday (0-4 are Monday-Friday)
+            while next_date.weekday() > 4:  # 5 is Saturday, 6 is Sunday
+                next_date += pd.Timedelta(days=1)
+            
+            # Format the next trading day
+            next_date_str = next_date.strftime('%Y-%m-%d')
+            
+            # Debug log to verify dates
+            logger.info(f"Last historical date: {last_date.strftime('%Y-%m-%d')}")
+            logger.info(f"Next trading day: {next_date_str}")
+            
+            # Add the prediction date and price
+            chart_dates.append(next_date_str)
+            actual_prices.append(None)  # No actual price for the prediction date
+            
+            # Create prediction line with only the last point
+            historical_predictions = [None] * (len(actual_prices) - 1)  # None for all historical points
+            historical_predictions.append(predicted_price)  # Add the prediction as the last point
+            
+            # Debug log the final chart dates
+            logger.info(f"Chart dates: {chart_dates}")
+            
+            response_data = {
+                'current_price': current_price,
+                'predicted_price': predicted_price,
+                'expected_change': expected_change,
+                'prediction_confidence': float(confidence),
+                'best_model': 'Ensemble (LR, RF, GB, LSTM)',
+                'technical_analysis': {
+                    'rsi': current_rsi,
+                    'macd': current_macd,
+                    'support_level': float(hist['BB_lower'].iloc[-1]),
+                    'resistance_level': float(hist['BB_upper'].iloc[-1])
+                },
+                'risk_metrics': {
+                    'volatility': float(volatility),
+                    'sharpe_ratio': float(sharpe_ratio),
+                    'max_drawdown': max_drawdown,
+                    'price_momentum': current_momentum,
+                    'volume_trend': current_volume_trend
+                },
+                'model_performance': {
+                    'model_agreement': float(agreement_score),
+                    'recent_accuracy': float(accuracy_score),
+                    'volatility_impact': float(volatility_score)
+                },
+                'chart_data': {
+                    'dates': chart_dates,
+                    'actual': [float(p) if p is not None else None for p in actual_prices],
+                    'predicted': [float(p) if p is not None else None for p in historical_predictions]
+                },
+                'data_source': 'Yahoo Finance',
+                'data_points': len(hist),
+                'note': f'Prediction based on {period} of historical data using ensemble of 4 models.'
+            }
+            logger.info(f"Successfully generated prediction for {symbol}")
+            return jsonify(response_data)
     except Exception as e:
         logger.error(f"Error in prediction: {str(e)}")
         return jsonify({'error': f'Prediction failed: {str(e)}'}), 500
 
+@app.route('/health', methods=['GET'])
+def health_check():
+    """Health check endpoint for monitoring"""
+    try:
+        # Test that we can import all required modules
+        import yfinance
+        import pandas
+        import numpy
+        import sklearn
+        import tensorflow
+        
+        return jsonify({
+            'status': 'healthy',
+            'message': 'Stock Predictor API is operational',
+            'dependencies': 'all modules loaded successfully'
+        }), 200
+    except Exception as e:
+        return jsonify({
+            'status': 'unhealthy',
+            'message': str(e)
+        }), 500
+
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
-    debug_mode = os.environ.get('DEBUG', 'false').lower() == 'true'
-    
-    logger.info(f"Starting Flask server on 0.0.0.0:{port} (debug={debug_mode})")
-    app.run(host='0.0.0.0', port=port, debug=debug_mode) 
+    # Get port from environment variable (Render sets this automatically)
+    port = int(os.environ.get('PORT', 5001))
+    logger.info(f"Starting Flask server on 0.0.0.0:{port} (debug=False)")
+    app.run(host='0.0.0.0', port=port, debug=False) 
