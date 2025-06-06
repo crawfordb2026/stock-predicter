@@ -1,5 +1,5 @@
 # Stock Price Predictor using Time Series Analysis
-# This project demonstrates data collection, preprocessing, and ML modeling
+# This project shows how to grab stock data, clean it up, and build ML models
 
 import pandas as pd
 import numpy as np
@@ -16,11 +16,11 @@ warnings.filterwarnings('ignore')
 class StockPredictor:
     def __init__(self, symbol, period='2y'):
         """
-        Initialize the Stock Predictor
+        Set up the Stock Predictor
         
         Args:
-            symbol (str): Stock symbol (e.g., 'AAPL', 'GOOGL')
-            period (str): Data period ('1y', '2y', '5y', 'max')
+            symbol (str): Stock symbol (like 'AAPL', 'GOOGL')
+            period (str): How much data to grab ('1y', '2y', '5y', 'max')
         """
         self.symbol = symbol
         self.period = period
@@ -29,7 +29,7 @@ class StockPredictor:
         self.model = None
         
     def fetch_data(self):
-        """Fetch stock data from Yahoo Finance"""
+        """Grab stock data from Yahoo Finance (it's free!)"""
         try:
             stock = yf.Ticker(self.symbol)
             data = stock.history(period=self.period)
@@ -46,66 +46,66 @@ class StockPredictor:
             return None
     
     def create_features(self):
-        """Create technical indicators and features"""
+        """Create technical indicators and features that might help predict prices"""
         if self.data is None:
             print("No data available. Please fetch data first.")
             return
         
         df = self.data.copy()
         
-        # Basic price features
+        # Basic price features that traders care about
         df['Price_Change'] = df['Close'].pct_change()
         df['High_Low_Pct'] = (df['High'] - df['Low']) / df['Close']
         df['Price_Volume'] = df['Close'] * df['Volume']
         
-        # Price momentum (5-day change)
+        # Price momentum (how much it moved in the last 5 days)
         df['Price_Momentum'] = df['Close'].pct_change(periods=5) * 100
         
-        # Volume trend (compared to 20-day average)
+        # Volume trend (is trading picking up or slowing down?)
         df['Volume_MA_20'] = df['Volume'].rolling(window=20).mean()
         df['Volume_Trend'] = ((df['Volume'] - df['Volume_MA_20']) / df['Volume_MA_20']) * 100
         
-        # Moving averages
+        # Moving averages (smooth out the noise)
         df['MA_5'] = df['Close'].rolling(window=5).mean()
         df['MA_10'] = df['Close'].rolling(window=10).mean()
         df['MA_20'] = df['Close'].rolling(window=20).mean()
         
-        # Relative Strength Index (RSI)
+        # RSI - tells us if the stock is overbought or oversold
         delta = df['Close'].diff()
         gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
         loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
         rs = gain / loss
         df['RSI'] = 100 - (100 / (1 + rs))
         
-        # Bollinger Bands
+        # Bollinger Bands - show if price is outside normal range
         rolling_mean = df['Close'].rolling(window=20).mean()
         rolling_std = df['Close'].rolling(window=20).std()
         df['BB_Upper'] = rolling_mean + (rolling_std * 2)
         df['BB_Lower'] = rolling_mean - (rolling_std * 2)
         df['BB_Position'] = (df['Close'] - df['BB_Lower']) / (df['BB_Upper'] - df['BB_Lower'])
         
-        # Volume indicators
+        # Volume indicators (is there unusual trading activity?)
         df['Volume_MA'] = df['Volume'].rolling(window=10).mean()
         df['Volume_Ratio'] = df['Volume'] / df['Volume_MA']
         
-        # Lag features (previous days' prices)
+        # Look at previous days' prices (maybe there's a pattern)
         for i in range(1, 6):
             df[f'Close_Lag_{i}'] = df['Close'].shift(i)
             df[f'Volume_Lag_{i}'] = df['Volume'].shift(i)
         
-        # Target variable (next day's closing price)
+        # What we're trying to predict (tomorrow's closing price)
         df['Target'] = df['Close'].shift(-1)
         
         self.data = df
         return df
     
     def prepare_data(self, test_size=0.2):
-        """Prepare data for training"""
+        """Get the data ready for machine learning"""
         if self.data is None:
             print("No data available. Please create features first.")
             return None, None, None, None
         
-        # Select features for training
+        # Pick the features we think will be useful
         feature_columns = [
             'Open', 'High', 'Low', 'Volume', 'Price_Change', 'High_Low_Pct',
             'MA_5', 'MA_10', 'MA_20', 'RSI', 'BB_Position', 'Volume_Ratio',
@@ -113,26 +113,26 @@ class StockPredictor:
             'Price_Momentum', 'Volume_Trend'
         ]
         
-        # Remove rows with NaN values
+        # Clean up any missing data
         df_clean = self.data.dropna()
         
         X = df_clean[feature_columns]
         y = df_clean['Target']
         
-        # Split data chronologically (important for time series)
+        # Split chronologically (newest data for testing, like real life)
         split_index = int(len(df_clean) * (1 - test_size))
         
         X_train, X_test = X[:split_index], X[split_index:]
         y_train, y_test = y[:split_index], y[split_index:]
         
-        # Scale features
+        # Scale the features so they all play nice together
         X_train_scaled = self.scaler.fit_transform(X_train)
         X_test_scaled = self.scaler.transform(X_test)
         
         return X_train_scaled, X_test_scaled, y_train, y_test
     
     def train_models(self, X_train, y_train):
-        """Train multiple models and compare performance"""
+        """Train a couple different models and see which works better"""
         models = {
             'Linear Regression': LinearRegression(),
             'Random Forest': RandomForestRegressor(n_estimators=100, random_state=42)
@@ -148,7 +148,7 @@ class StockPredictor:
         return trained_models
     
     def evaluate_models(self, models, X_test, y_test):
-        """Evaluate model performance"""
+        """See how well our models actually perform"""
         results = {}
         
         for name, model in models.items():
@@ -175,7 +175,7 @@ class StockPredictor:
         return results
     
     def plot_predictions(self, y_test, predictions, model_name):
-        """Plot actual vs predicted prices"""
+        """Make a nice chart showing actual vs predicted prices"""
         plt.figure(figsize=(12, 6))
         
         # Convert to pandas Series for easier plotting
@@ -194,7 +194,7 @@ class StockPredictor:
         plt.show()
     
     def plot_feature_importance(self, model, feature_names):
-        """Plot feature importance for tree-based models"""
+        """Show which features the model thinks are most important"""
         if hasattr(model, 'feature_importances_'):
             importance = model.feature_importances_
             indices = np.argsort(importance)[::-1]

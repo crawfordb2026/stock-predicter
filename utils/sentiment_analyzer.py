@@ -14,13 +14,13 @@ class SentimentAnalyzer:
         self.logger = logging.getLogger(__name__)
 
     def get_news_sentiment(self, symbol, company_name, days=7):
-        """Analyze news sentiment for a given stock"""
+        """Check what the news is saying about this stock lately"""
         try:
-            # Get news articles
+            # Figure out our date range
             end_date = datetime.now()
             start_date = end_date - timedelta(days=days)
             
-            # Search for news
+            # Search for recent news articles
             news = self.news_api.get_everything(
                 q=f"{symbol} OR {company_name}",
                 from_param=start_date.strftime('%Y-%m-%d'),
@@ -29,10 +29,10 @@ class SentimentAnalyzer:
                 sort_by='relevancy'
             )
             
-            # Analyze sentiment
+            # Analyze the sentiment of each article
             sentiments = []
             for article in news['articles']:
-                # Combine title and description for analysis
+                # Look at both title and description for better analysis
                 text = f"{article['title']} {article['description']}"
                 sentiment = TextBlob(text).sentiment
                 
@@ -43,11 +43,11 @@ class SentimentAnalyzer:
                     'subjectivity': sentiment.subjectivity
                 })
             
-            # Convert to DataFrame
+            # Put it all in a nice DataFrame
             df = pd.DataFrame(sentiments)
             df['date'] = pd.to_datetime(df['date'])
             
-            # Calculate daily sentiment
+            # Calculate average sentiment for each day
             daily_sentiment = df.groupby(df['date'].dt.date).agg({
                 'polarity': 'mean',
                 'subjectivity': 'mean'
@@ -67,9 +67,9 @@ class SentimentAnalyzer:
             return None
 
     def get_social_sentiment(self, symbol):
-        """Analyze social media sentiment (placeholder for future implementation)"""
-        # This is a placeholder for future implementation
-        # Could integrate with Twitter API, Reddit API, etc.
+        """Check social media vibes (coming soon!)"""
+        # This is where we'd plug in Twitter, Reddit, etc.
+        # For now, just returning neutral sentiment
         return {
             'twitter_sentiment': 0.0,
             'reddit_sentiment': 0.0,
@@ -77,11 +77,12 @@ class SentimentAnalyzer:
         }
 
     def get_combined_sentiment(self, symbol, company_name):
-        """Combine news and social media sentiment"""
+        """Combine news and social media sentiment into one score"""
         news_sentiment = self.get_news_sentiment(symbol, company_name)
         social_sentiment = self.get_social_sentiment(symbol)
         
         if news_sentiment:
+            # Weight news more heavily since social media can be noisy
             overall_sentiment = (
                 news_sentiment['overall_sentiment']['polarity'] * 0.7 +
                 social_sentiment['overall_social_sentiment'] * 0.3

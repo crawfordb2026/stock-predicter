@@ -3,11 +3,11 @@ document.addEventListener('DOMContentLoaded', function() {
     const stockSymbol = document.getElementById('stockSymbol');
     const period = document.getElementById('period');
     
-    // Dynamic API URL configuration
+    // Figure out the right API URL based on where we're running
     const API_CONFIG = {
-        // Use the same host and port as the current page
+        // Use whatever URL we're currently on
         baseUrl: `${window.location.protocol}//${window.location.host}`,
-        // Fallback to localhost:5001 for local development
+        // Backup plan for local development
         fallbackUrl: 'http://127.0.0.1:5001'
     };
     
@@ -17,14 +17,14 @@ document.addEventListener('DOMContentLoaded', function() {
         const symbol = stockSymbol.value;
         const selectedPeriod = period.value;
         
-        // Show loading state
+        // Show that we're working on it
         predictBtn.disabled = true;
         predictBtn.textContent = 'Predicting...';
         
         try {
             console.log('Sending prediction request...');
             
-            // Try the dynamic API URL first, fallback to localhost
+            // Try our main URL first, then fallback for local dev
             let apiUrl = API_CONFIG.baseUrl;
             if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
                 apiUrl = API_CONFIG.fallbackUrl;
@@ -56,38 +56,39 @@ document.addEventListener('DOMContentLoaded', function() {
             console.error('Error details:', error);
             alert(`Error: ${error.message}`);
         } finally {
+            // Reset the button no matter what happened
             predictBtn.disabled = false;
             predictBtn.textContent = 'Predict';
         }
     });
 
     function updateUI(data) {
-        // Update current price
+        // Fill in the current price
         document.getElementById('currentPrice').textContent = `$${data.current_price.toFixed(2)}`;
         
-        // Update predicted price
+        // Show our prediction
         document.getElementById('predictedPrice').textContent = `$${data.predicted_price.toFixed(2)}`;
         
-        // Update expected change
+        // Show the expected change with proper color coding
         const changeElement = document.getElementById('expectedChange');
         const change = data.expected_change;
         changeElement.textContent = `${change > 0 ? '+' : ''}${change.toFixed(2)}%`;
         changeElement.className = `value ${change >= 0 ? 'positive' : 'negative'}`;
         
-        // Update prediction confidence
+        // Show how confident we are
         const confidence = data.prediction_confidence || 0;
         document.getElementById('predictionConfidence').textContent = `${confidence.toFixed(1)}%`;
         
-        // Update technical analysis
+        // Fill in all the technical analysis stuff
         const technicalAnalysis = data.technical_analysis || {};
         document.getElementById('rsi').textContent = `${(technicalAnalysis.rsi || 0).toFixed(2)}`;
         document.getElementById('macd').textContent = `${(technicalAnalysis.macd || 0).toFixed(2)}`;
         document.getElementById('supportLevel').textContent = `$${(technicalAnalysis.support_level || 0).toFixed(2)}`;
         document.getElementById('resistanceLevel').textContent = `$${(technicalAnalysis.resistance_level || 0).toFixed(2)}`;
         
-        // Update risk metrics
+        // Fill in the risk metrics
         const riskMetrics = data.risk_metrics || {};
-        console.log('Risk Metrics received:', riskMetrics);  // Debug log
+        console.log('Risk Metrics received:', riskMetrics);  // For debugging
         
         document.getElementById('volatility').textContent = `${(riskMetrics.volatility || 0).toFixed(2)}%`;
         document.getElementById('sharpeRatio').textContent = (riskMetrics.sharpe_ratio || 0).toFixed(2);
@@ -95,19 +96,20 @@ document.addEventListener('DOMContentLoaded', function() {
         
         const priceMomentum = riskMetrics.price_momentum || 0;
         const volumeTrend = riskMetrics.volume_trend || 0;
-        console.log('Price Momentum:', priceMomentum);  // Debug log
-        console.log('Volume Trend:', volumeTrend);  // Debug log
+        console.log('Price Momentum:', priceMomentum);  // Debug info
+        console.log('Volume Trend:', volumeTrend);  // Debug info
         
         document.getElementById('priceMomentum').textContent = `${priceMomentum > 0 ? '+' : ''}${priceMomentum.toFixed(2)}%`;
         document.getElementById('volumeTrend').textContent = `${volumeTrend > 0 ? '+' : ''}${volumeTrend.toFixed(2)}%`;
         
-        // Update chart
+        // Update the price chart
         updateChart(data.chart_data);
     }
 
     function updateChart(chartData) {
         const ctx = document.getElementById('priceChart').getContext('2d');
         
+        // Destroy the old chart if it exists
         if (priceChart) {
             priceChart.destroy();
         }
@@ -129,14 +131,14 @@ document.addEventListener('DOMContentLoaded', function() {
                         borderColor: 'rgb(255, 99, 132)',
                         tension: 0.1,
                         pointRadius: function(context) {
-                            // Only show point for the last data point (prediction)
+                            // Only show the prediction point (the last one)
                             return context.dataIndex === context.dataset.data.length - 1 ? 6 : 0;
                         },
                         pointStyle: 'circle',
                         pointBackgroundColor: 'rgb(255, 99, 132)',
                         pointBorderColor: '#fff',
                         pointBorderWidth: 2,
-                        showLine: false  // Don't show lines between points
+                        showLine: false  // Don't connect the prediction point
                     }
                 ]
             },
@@ -173,20 +175,20 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    // Add model tab switching functionality
+    // Handle the model info tabs switching
     const modelTabs = document.querySelectorAll('.model-tab');
     const modelInfos = document.querySelectorAll('.model-info');
 
     modelTabs.forEach(tab => {
         tab.addEventListener('click', () => {
-            // Remove active class from all tabs and infos
+            // Clear all active states
             modelTabs.forEach(t => t.classList.remove('active'));
             modelInfos.forEach(info => info.classList.remove('active'));
 
-            // Add active class to clicked tab
+            // Set the clicked tab as active
             tab.classList.add('active');
 
-            // Show corresponding model info
+            // Show the corresponding model info
             const modelId = tab.getAttribute('data-model');
             document.getElementById(`${modelId}-info`).classList.add('active');
         });

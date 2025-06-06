@@ -22,16 +22,16 @@ class EnhancedStockPredictor:
         self.logger = logging.getLogger(__name__)
 
     def fetch_data(self):
-        """Fetch and prepare stock data with technical indicators"""
+        """Grab stock data and add all the fancy technical indicators"""
         try:
-            # Fetch stock data
+            # Get the raw stock data
             stock = yf.Ticker(self.symbol)
             self.data = stock.history(period=self.period)
             
-            # Add technical indicators
+            # Calculate all the technical indicators traders love
             self._add_technical_indicators()
             
-            # Add market indicators
+            # Add broader market context
             self._add_market_indicators()
             
             return True
@@ -40,47 +40,47 @@ class EnhancedStockPredictor:
             return False
 
     def _add_technical_indicators(self):
-        """Add technical indicators to the dataset"""
-        # Trend indicators
+        """Calculate all the technical indicators that might help predict prices"""
+        # Trend indicators (which way is it going?)
         self.data['SMA_20'] = ta.trend.sma_indicator(self.data['Close'], window=20)
         self.data['SMA_50'] = ta.trend.sma_indicator(self.data['Close'], window=50)
         self.data['EMA_20'] = ta.trend.ema_indicator(self.data['Close'], window=20)
         
-        # Momentum indicators
+        # Momentum indicators (how fast is it moving?)
         self.data['RSI'] = ta.momentum.rsi(self.data['Close'])
         self.data['MACD'] = ta.trend.macd_diff(self.data['Close'])
         self.data['Stoch'] = ta.momentum.stoch(self.data['High'], self.data['Low'], self.data['Close'])
         
-        # Volatility indicators
+        # Volatility indicators (how wild is it getting?)
         self.data['BB_upper'], self.data['BB_middle'], self.data['BB_lower'] = ta.volatility.bollinger_bands(self.data['Close'])
         self.data['ATR'] = ta.volatility.average_true_range(self.data['High'], self.data['Low'], self.data['Close'])
         
-        # Volume indicators
+        # Volume indicators (how much interest is there?)
         self.data['OBV'] = ta.volume.on_balance_volume(self.data['Close'], self.data['Volume'])
         self.data['MFI'] = ta.volume.money_flow_index(self.data['High'], self.data['Low'], self.data['Close'], self.data['Volume'])
 
     def _add_market_indicators(self):
-        """Add market indicators and correlations"""
-        # Fetch S&P 500 data
+        """Add context from the broader market"""
+        # Get S&P 500 data for market context
         sp500 = yf.Ticker('^GSPC')
         sp500_data = sp500.history(period=self.period)
         
-        # Calculate correlation
+        # See how correlated this stock is with the overall market
         self.data['SP500_Correlation'] = self.data['Close'].rolling(window=20).corr(sp500_data['Close'])
         
-        # Add VIX data
+        # Add fear index (VIX) - when this spikes, everything goes crazy
         vix = yf.Ticker('^VIX')
         vix_data = vix.history(period=self.period)
         self.data['VIX'] = vix_data['Close']
 
     def prepare_data(self, sequence_length=10):
-        """Prepare data for model training"""
-        # Select features
+        """Get the data ready for our machine learning models"""
+        # Pick all the features we think matter
         features = ['Open', 'High', 'Low', 'Close', 'Volume', 'SMA_20', 'SMA_50', 
                    'EMA_20', 'RSI', 'MACD', 'Stoch', 'BB_upper', 'BB_middle', 
                    'BB_lower', 'ATR', 'OBV', 'MFI', 'SP500_Correlation', 'VIX']
         
-        # Create sequences for LSTM
+        # Create sequences for the LSTM (it needs to see patterns over time)
         X, y = [], []
         for i in range(len(self.data) - sequence_length):
             X.append(self.data[features].iloc[i:(i + sequence_length)].values)
@@ -89,7 +89,7 @@ class EnhancedStockPredictor:
         X = np.array(X)
         y = np.array(y)
         
-        # Split data
+        # Split into training and testing (chronologically, like real life)
         train_size = int(len(X) * 0.8)
         X_train, X_test = X[:train_size], X[train_size:]
         y_train, y_test = y[:train_size], y[train_size:]
@@ -97,7 +97,7 @@ class EnhancedStockPredictor:
         return X_train, X_test, y_train, y_test
 
     def build_lstm_model(self, input_shape):
-        """Build and compile LSTM model"""
+        """Build our fancy neural network for time series prediction"""
         model = Sequential([
             LSTM(units=50, return_sequences=True, input_shape=input_shape),
             Dropout(0.2),
@@ -110,29 +110,29 @@ class EnhancedStockPredictor:
         return model
 
     def train_models(self, X_train, y_train):
-        """Train multiple models"""
-        # LSTM Model
+        """Train our ensemble of different models"""
+        # LSTM - the neural network that's good with time series
         lstm_model = self.build_lstm_model(input_shape=(X_train.shape[1], X_train.shape[2]))
         lstm_model.fit(X_train, y_train, epochs=50, batch_size=32, verbose=0)
         self.models['lstm'] = lstm_model
         
-        # Random Forest
+        # Random Forest - good at finding complex patterns
         rf_model = RandomForestRegressor(n_estimators=100, random_state=42)
         rf_model.fit(X_train.reshape(X_train.shape[0], -1), y_train)
         self.models['random_forest'] = rf_model
         
-        # Gradient Boosting
+        # Gradient Boosting - builds on mistakes of previous models
         gb_model = GradientBoostingRegressor(n_estimators=100, random_state=42)
         gb_model.fit(X_train.reshape(X_train.shape[0], -1), y_train)
         self.models['gradient_boosting'] = gb_model
         
-        # Linear Regression
+        # Linear Regression - simple but often effective baseline
         lr_model = LinearRegression()
         lr_model.fit(X_train.reshape(X_train.shape[0], -1), y_train)
         self.models['linear_regression'] = lr_model
 
     def evaluate_models(self, X_test, y_test):
-        """Evaluate all models and return performance metrics"""
+        """See how well each of our models actually performs"""
         results = {}
         
         for name, model in self.models.items():
@@ -153,15 +153,15 @@ class EnhancedStockPredictor:
         return results
 
     def predict_next_day(self, confidence_threshold=0.7):
-        """Make ensemble prediction with confidence score"""
+        """Make our best guess at tomorrow's price using all models"""
         if not self.models:
             raise ValueError("Models not trained. Call train_models first.")
         
-        # Get the last sequence of data
+        # Get the most recent data sequence
         last_sequence = self.data.iloc[-10:][self.features].values
         last_sequence = last_sequence.reshape(1, last_sequence.shape[0], last_sequence.shape[1])
         
-        # Get predictions from all models
+        # Ask each model for their opinion
         predictions = []
         for name, model in self.models.items():
             if name == 'lstm':
@@ -170,10 +170,10 @@ class EnhancedStockPredictor:
                 pred = model.predict(last_sequence.reshape(1, -1))[0]
             predictions.append(pred)
         
-        # Calculate ensemble prediction
+        # Average all the predictions (wisdom of crowds)
         ensemble_prediction = np.mean(predictions)
         
-        # Calculate confidence score based on model agreement
+        # See how much the models agree (higher agreement = higher confidence)
         confidence = 1 - (np.std(predictions) / np.mean(predictions))
         
         if confidence < confidence_threshold:
@@ -186,8 +186,8 @@ class EnhancedStockPredictor:
         }
 
     def get_support_resistance(self):
-        """Calculate support and resistance levels"""
-        # Simple implementation using recent highs and lows
+        """Figure out the support and resistance levels traders watch"""
+        # Look at recent highs and lows to find key levels
         recent_highs = self.data['High'].rolling(window=20).max()
         recent_lows = self.data['Low'].rolling(window=20).min()
         

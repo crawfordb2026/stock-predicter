@@ -1,7 +1,7 @@
 import os
-# Set TensorFlow environment variables before importing TensorFlow
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # Reduce TensorFlow logging
-os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'  # Disable oneDNN optimizations for compatibility
+# Gotta set these TensorFlow settings before importing it, or it'll spam the console
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # Keep TensorFlow quiet 
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'  # Turn off some optimizations that can break things
 
 from flask import Flask, request, jsonify, send_from_directory, send_file
 from flask_cors import CORS
@@ -18,20 +18,20 @@ from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import LSTM, Dense, Dropout
 import tensorflow as tf
 
-# Configure logging
+#set up logging so we can see what's happening
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
-CORS(app, origins=['*'])  # Allow all origins for Render deployment
+CORS(app, origins=['*'])  #let everyone access this for now (needed for Render)
 
-# Finnhub configuration
+# my Finnhub API credentials - free tier but works great
 FINNHUB_API_KEY = "d0tlt41r01qlvahcvqv0d0tlt41r01qlvahcvqvg"
 FINNHUB_BASE_URL = "https://finnhub.io/api/v1"
 
 @app.route('/')
 def home():
-    """Serve the main HTML page"""
+    """Just serve up our main page"""
     try:
         return send_from_directory('web', 'index.html')
     except Exception as e:
@@ -40,21 +40,21 @@ def home():
 
 @app.route('/static/<path:filename>')
 def serve_static(filename):
-    """Serve static files (CSS, JS, etc.)"""
+    """Handle all the CSS, JS, and other static files"""
     return send_from_directory('web/static', filename)
 
 @app.route('/static/css/style.css')
 def serve_css():
-    """Serve CSS file specifically"""
+    """Make sure our CSS loads properly"""
     return send_from_directory('web/static/css', 'style.css')
 
 @app.route('/static/js/main.js')
 def serve_js():
-    """Serve JavaScript file specifically"""
+    """Make sure our JavaScript loads properly"""
     return send_from_directory('web/static/js', 'main.js')
 
 def calculate_rsi(prices, period=14):
-    """Calculate Relative Strength Index"""
+    """Calculate RSI - basically tells us if a stock is overbought or oversold"""
     delta = prices.diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
@@ -62,7 +62,7 @@ def calculate_rsi(prices, period=14):
     return 100 - (100 / (1 + rs))
 
 def calculate_macd(prices, fast=12, slow=26, signal=9):
-    """Calculate MACD (Moving Average Convergence Divergence)"""
+    """MACD helps us spot trend changes - super useful for predictions"""
     exp1 = prices.ewm(span=fast).mean()
     exp2 = prices.ewm(span=slow).mean()
     macd = exp1 - exp2
@@ -70,7 +70,7 @@ def calculate_macd(prices, fast=12, slow=26, signal=9):
     return macd, signal_line
 
 def calculate_bollinger_bands(prices, period=20, num_std=2):
-    """Calculate Bollinger Bands"""
+    """Bollinger Bands show us price ranges - helps identify breakouts"""
     rolling_mean = prices.rolling(window=period).mean()
     rolling_std = prices.rolling(window=period).std()
     upper_band = rolling_mean + (rolling_std * num_std)
@@ -78,7 +78,7 @@ def calculate_bollinger_bands(prices, period=20, num_std=2):
     return upper_band, rolling_mean, lower_band
 
 def calculate_atr(data, period=14):
-    """Calculate Average True Range"""
+    """Average True Range - shows us how volatile a stock has been"""
     high_low = data['High'] - data['Low']
     high_close = np.abs(data['High'] - data['Close'].shift())
     low_close = np.abs(data['Low'] - data['Close'].shift())
@@ -86,7 +86,7 @@ def calculate_atr(data, period=14):
     return tr.rolling(window=period).mean()
 
 def calculate_obv(data):
-    """Calculate On Balance Volume"""
+    """On Balance Volume - helps us see if money is flowing in or out"""
     obv = []
     obv_value = 0
     for i in range(len(data)):
@@ -101,11 +101,11 @@ def calculate_obv(data):
     return pd.Series(obv, index=data.index)
 
 def fetch_stock_data(symbol, period):
-    """Fetch historical stock data"""
+    """Grab historical stock data - using simulated data for the demo"""
     try:
         logger.info(f"Fetching data for {symbol} over {period}")
         
-        # Calculate number of days based on period
+        # Figure out how many days we need
         if period == '1y':
             days = 365
         elif period == '2y':
@@ -115,15 +115,15 @@ def fetch_stock_data(symbol, period):
         else:
             days = 365
             
-        # Generate date range
+        # Create our date range
         end_date = pd.Timestamp.now().normalize()
         start_date = end_date - pd.Timedelta(days=days)
         dates = pd.date_range(start=start_date, end=end_date, freq='D')
         
-        # Filter to business days only
+        # Only keep business days (no weekends)
         business_days = dates[dates.dayofweek < 5]
         
-        # Set base price based on symbol
+        # Base prices for different stocks (roughly realistic)
         symbol_base_prices = {
             'AAPL': 180.0, 'GOOGL': 2800.0, 'MSFT': 340.0, 'AMZN': 3200.0,
             'TSLA': 800.0, 'META': 320.0, 'NFLX': 450.0, 'NVDA': 900.0,
@@ -132,51 +132,51 @@ def fetch_stock_data(symbol, period):
         
         base_price = symbol_base_prices.get(symbol, 150.0)
         
-        # Generate price data with realistic patterns
+        # Create realistic-looking price data
         np.random.seed(hash(symbol) % 2**32)
         
         n_days = len(business_days)
         prices = [base_price]
         
-        # Generate realistic price movements
+        # Generate price movements that actually look like real stocks
         for i in range(1, n_days):
-            # Add trend component
-            trend = 0.0002 * np.sin(2 * np.pi * i / 252)  # Yearly cycle
+            # Add some seasonal trends
+            trend = 0.0002 * np.sin(2 * np.pi * i / 252)  # Annual cycle
             
-            # Add random walk
+            # Random daily movement
             daily_return = np.random.normal(trend, 0.02)
             
-            # Add volatility clustering
+            # Make volatility cluster (like real markets)
             if i > 5:
                 recent_vol = np.std([np.log(prices[j]/prices[j-1]) for j in range(max(1, i-5), i)])
                 daily_return *= (1 + recent_vol * 2)
             
             new_price = prices[-1] * (1 + daily_return)
-            new_price = max(new_price, base_price * 0.3)  # Prevent unrealistic crashes
-            new_price = min(new_price, base_price * 3.0)   # Prevent unrealistic spikes
+            new_price = max(new_price, base_price * 0.3)  # don't let it crash too hard
+            new_price = min(new_price, base_price * 3.0)   # Don't let it moon too hard
             prices.append(new_price)
         
-        # Generate OHLC data
+        # Build the full OHLC dataset
         data = []
         for i, date in enumerate(business_days):
             close = prices[i]
             
-            # Generate intraday range
+            # Create realistic intraday movement
             daily_range = abs(np.random.normal(0, 0.015))
             high = close * (1 + daily_range)
             low = close * (1 - daily_range)
             
-            # Ensure logical OHLC relationship
+            # Make sure the open makes sense
             if i == 0:
                 open_price = close * np.random.uniform(0.995, 1.005)
             else:
                 open_price = prices[i-1] * np.random.uniform(0.998, 1.002)
             
-            # Adjust to maintain OHLC logic
+            # Fix any OHLC inconsistencies
             high = max(high, open_price, close)
             low = min(low, open_price, close)
             
-            # Generate volume (higher volume on bigger price moves)
+            # Generate volume (more volume when price moves a lot)
             price_change = abs(close - (prices[i-1] if i > 0 else close))
             base_volume = 1000000 + hash(f"{symbol}{i}") % 5000000
             volume_multiplier = 1 + (price_change / close) * 10
@@ -191,7 +191,7 @@ def fetch_stock_data(symbol, period):
                 'Volume': volume
             })
         
-        # Create DataFrame
+        # Put it all in a nice DataFrame
         df = pd.DataFrame(data)
         df.set_index('Date', inplace=True)
         
@@ -209,7 +209,7 @@ def test():
 
 @app.route('/debug/<symbol>', methods=['GET'])
 def debug_data(symbol):
-    """Debug endpoint to test data fetching"""
+    """Quick debug check to see if our data fetching works"""
     try:
         data = fetch_stock_data(symbol, '1y')
         if data is not None:
@@ -245,7 +245,7 @@ def debug_data(symbol):
 @app.route('/predict', methods=['POST'])
 def predict():
     try:
-        # Add request validation
+        # Make sure they sent us proper JSON
         if not request.is_json:
             return jsonify({'error': 'Request must be JSON'}), 400
             
@@ -258,20 +258,20 @@ def predict():
         
         logger.info(f"Received prediction request for {symbol} over {period}")
         
-        # Validate inputs
+        # Basic input validation
         if not symbol or len(symbol) > 10:
             return jsonify({'error': 'Invalid symbol parameter'}), 400
             
         if period not in ['1y', '2y', '5y', 'max']:
             return jsonify({'error': 'Invalid period parameter'}), 400
         
-        # Get historical data from Yahoo Finance
+        # Grab the historical data
         hist = fetch_stock_data(symbol, period)
         
         if hist is None or len(hist) == 0:
             return jsonify({'error': f'Unable to fetch data for {symbol}. Please check the symbol and try again.'}), 400
         
-        # Calculate technical indicators
+        # Calculate all our technical indicators 
         hist['SMA_5'] = hist['Close'].rolling(window=5).mean()
         hist['SMA_20'] = hist['Close'].rolling(window=20).mean()
         hist['RSI'] = calculate_rsi(hist['Close'])
@@ -300,44 +300,47 @@ def predict():
         current_macd = float(hist['MACD'].iloc[-1])
         current_momentum = float(hist['Price_Momentum'].iloc[-1])
         current_volume_trend = float(hist['Volume_Trend'].iloc[-1])
-        # Prepare features for ML models
+        
+        # Get our data ready for the ML models
         hist = hist.dropna()
         feature_cols = ['Open', 'High', 'Low', 'Volume', 'SMA_5', 'SMA_20', 'RSI', 'MACD', 'Signal', 'BB_upper', 'BB_middle', 'BB_lower', 'ATR', 'OBV', 'Price_Momentum', 'Volume_Trend']
         if len(hist) < 30:
             return jsonify({'error': 'Not enough data to make a prediction.'}), 400
         
-        # Set random seeds for reproducibility
+        # Keep things consistent with random seeds
         np.random.seed(42)
         tf.random.set_seed(42)
         
         X = hist[feature_cols].values
         y = hist['Close'].values
         
-        # Scale both features and target
+        # Scale everything so the models can work with it properly
         X_scaler = MinMaxScaler()
         y_scaler = MinMaxScaler()
         X_scaled = X_scaler.fit_transform(X)
         y_scaled = y_scaler.fit_transform(y.reshape(-1, 1))
         
-        # Use last row for prediction
+        # Use the latest data for our prediction
         X_pred = X_scaled[-1].reshape(1, -1)
         
-        # 1. Linear Regression
+        # Time to run our ensemble of models!
+        
+        # Model 1: Linear Regression (simple but effective baseline)
         lr = LinearRegression()
         lr.fit(X_scaled[:-1], y_scaled[:-1])
         lr_pred = y_scaler.inverse_transform(lr.predict(X_pred).reshape(-1, 1))[0][0]
         
-        # 2. Random Forest
+        # Model 2: Random Forest (good at finding complex patterns)
         rf = RandomForestRegressor(n_estimators=50, random_state=42)
         rf.fit(X_scaled[:-1], y_scaled[:-1])
         rf_pred = y_scaler.inverse_transform(rf.predict(X_pred).reshape(-1, 1))[0][0]
         
-        # 3. Gradient Boosting
+        # Model 3: Gradient Boosting (great at correcting mistakes)
         gb = GradientBoostingRegressor(n_estimators=50, random_state=42)
         gb.fit(X_scaled[:-1], y_scaled[:-1])
         gb_pred = y_scaler.inverse_transform(gb.predict(X_pred).reshape(-1, 1))[0][0]
         
-        # 4. LSTM
+        # Model 4: LSTM (the fancy neural network for time series)
         seq_len = 10
         X_lstm = []
         y_lstm = []
@@ -357,33 +360,33 @@ def predict():
         X_lstm_pred = X_scaled[-seq_len:].reshape(1, seq_len, X_lstm.shape[2])
         lstm_pred = y_scaler.inverse_transform(lstm_model.predict(X_lstm_pred))[0][0]
         
-        # Calculate predictions and validate them
+        # Combine all our predictions and check for sanity
         predictions = [lr_pred, rf_pred, gb_pred, lstm_pred]
         
-        # Remove any extreme outliers (more than 20% from current price)
+        # Toss out any crazy predictions (more than 20% change is suspicious)
         valid_predictions = [p for p in predictions if abs(p - current_price) / current_price < 0.20]
         
         if not valid_predictions:
-            # If all predictions are invalid, use a more conservative approach
+            # If all models went crazy, fall back to simple trend analysis
             recent_returns = hist['Close'].pct_change().tail(20).mean()
             predicted_price = current_price * (1 + recent_returns)
             confidence = 30.0  # Low confidence when using fallback
         else:
-            # Use the average of valid predictions
+            # Average the sane predictions
             predicted_price = np.mean(valid_predictions)
             
-            # Calculate confidence based on:
-            # 1. Model agreement (how close predictions are to each other)
-            # 2. Recent prediction accuracy
-            # 3. Market volatility
+            # Figure out how confident we should be in this prediction
+            # Based on three things:
+            # 1. Do our models agree with each other?
+            # 2. How well have they been doing lately?
+            # 3. How volatile is this stock?
             
-            # 1. Model agreement (0-40 points)
+            # 1. Model agreement - if they all say similar things, that's good
             std_dev = np.std(valid_predictions)
             mean_price = np.mean(valid_predictions)
             agreement_score = 40 * (1 - min(1, std_dev / mean_price))
             
-            # 2. Recent prediction accuracy (0-30 points)
-            # Use last 5 days to evaluate model accuracy
+            # 2. Recent accuracy - have we been right lately?
             recent_actual = hist['Close'].tail(5).values
             recent_pred = []
             for i in range(5):
@@ -398,60 +401,57 @@ def predict():
                 accuracy = 1 - np.mean(np.abs(np.array(recent_pred) - recent_actual) / recent_actual)
                 accuracy_score = 30 * max(0, accuracy)
             else:
-                accuracy_score = 15  # Default middle score if not enough data
+                accuracy_score = 15  # Just give it an average score if we can't calculate
             
-            # 3. Market volatility (0-30 points)
+            # 3. Market volatility - wild markets are harder to predict
             volatility = hist['Close'].pct_change().std() * np.sqrt(252)
             volatility_score = 30 * (1 - min(1, volatility))
             
-            # Total confidence score (30-95 range)
+            # Combine all confidence factors (keep it between 30-95%)
             confidence = min(95, max(30, agreement_score + accuracy_score + volatility_score))
             
-            # Add debug logging
+            # Some debug info for nerds like us
             logger.info(f"Confidence components - Agreement: {agreement_score:.1f}, Accuracy: {accuracy_score:.1f}, Volatility: {volatility_score:.1f}")
             logger.info(f"Final confidence score: {confidence:.1f}")
             
-            # Ensure prediction is within reasonable bounds
-            max_change = 0.05  # 5% maximum change
+            # Don't let the prediction be too crazy (max 5% change)
+            max_change = 0.05
             predicted_price = np.clip(
                 predicted_price,
                 current_price * (1 - max_change),
                 current_price * (1 + max_change)
             )
             
-            # Calculate the expected change percentage
+            # Calculate how much change we're predicting
             expected_change = ((predicted_price - current_price) / current_price) * 100
             
-            # Prepare chart data - get the most recent 30 days
+            # Prepare the chart data - last 30 days plus our prediction
             recent_data = hist.tail(30)
             chart_dates = recent_data.index.strftime('%Y-%m-%d').tolist()
             actual_prices = recent_data['Close'].tolist()
             
-            # Add the prediction as a single point
-            # Find the next trading day after the last historical date
+            # Figure out the next trading day for our prediction
             last_date = recent_data.index[-1]
             next_date = last_date + pd.Timedelta(days=1)
             
-            # Keep adding days until we find a weekday (0-4 are Monday-Friday)
+            # Skip weekends (market's closed!)
             while next_date.weekday() > 4:  # 5 is Saturday, 6 is Sunday
                 next_date += pd.Timedelta(days=1)
             
-            # Format the next trading day
             next_date_str = next_date.strftime('%Y-%m-%d')
             
-            # Debug log to verify dates
+            # Debug info
             logger.info(f"Last historical date: {last_date.strftime('%Y-%m-%d')}")
             logger.info(f"Next trading day: {next_date_str}")
             
-            # Add the prediction date and price
+            # Add our prediction to the chart
             chart_dates.append(next_date_str)
-            actual_prices.append(None)  # No actual price for the prediction date
+            actual_prices.append(None)  # No actual price yet (it's the future!)
             
-            # Create prediction line with only the last point
-            historical_predictions = [None] * (len(actual_prices) - 1)  # None for all historical points
-            historical_predictions.append(predicted_price)  # Add the prediction as the last point
+            # Show prediction as just the final point
+            historical_predictions = [None] * (len(actual_prices) - 1)
+            historical_predictions.append(predicted_price)
             
-            # Debug log the final chart dates
             logger.info(f"Chart dates: {chart_dates}")
             
             response_data = {
@@ -495,9 +495,9 @@ def predict():
 
 @app.route('/health', methods=['GET'])
 def health_check():
-    """Health check endpoint for monitoring"""
+    """Simple health check to make sure everything's working"""
     try:
-        # Test that we can import all required modules
+        # Make sure all our important modules are still there
         import yfinance
         import pandas
         import numpy
@@ -516,7 +516,7 @@ def health_check():
         }), 500
 
 if __name__ == '__main__':
-    # Get port from environment variable (Render sets this automatically)
+    # Render gives us the port via environment variable
     port = int(os.environ.get('PORT', 5001))
     logger.info(f"Starting Flask server on 0.0.0.0:{port} (debug=False)")
     app.run(host='0.0.0.0', port=port, debug=False) 
