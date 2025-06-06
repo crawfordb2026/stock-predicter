@@ -1,4 +1,8 @@
 import os
+# Load environment variables from .env file
+from dotenv import load_dotenv
+load_dotenv()
+
 # Gotta set these TensorFlow settings before importing it, or it'll spam the console
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # Keep TensorFlow quiet 
 os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'  # Turn off some optimizations that can break things
@@ -25,8 +29,8 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 CORS(app, origins=['*'])  #let everyone access this for now (needed for Render)
 
-# my Finnhub API credentials - free tier but works great
-FINNHUB_API_KEY = "d0tlt41r01qlvahcvqv0d0tlt41r01qlvahcvqvg"
+# Get API key from environment variable (much safer!)
+FINNHUB_API_KEY = os.environ.get('FINNHUB_API_KEY', 'your-api-key-here')
 FINNHUB_BASE_URL = "https://finnhub.io/api/v1"
 
 @app.route('/')
