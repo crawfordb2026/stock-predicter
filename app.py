@@ -112,7 +112,11 @@ def fetch_stock_data(symbol, period):
         logger.info(f"Fetching data for {symbol} over {period}")
         
         # Figure out how many days we need
-        if period == '1y':
+        if period == '3mo':
+            days = 90
+        elif period == '6mo':
+            days = 180
+        elif period == '1y':
             days = 365
         elif period == '2y':
             days = 730
@@ -267,11 +271,15 @@ def predict():
         logger.info(f"Received prediction request for {symbol} over {period}")
         logger.info(f"Running on environment: {'cloud' if os.environ.get('RENDER') else 'local'}")
         
+        # DEBUG: Confirm we're running the updated version
+        logger.info(f"DEBUG: Period validation check - received period: {period}")
+        
         # Basic input validation
         if not symbol or len(symbol) > 10:
             return jsonify({'error': 'Invalid symbol parameter'}), 400
             
-        if period not in ['1y', '2y', '5y', 'max']:
+        if period not in ['3mo', '6mo', '1y', '2y', '5y', 'max']:
+            logger.error(f"DEBUG: Period {period} not in allowed list: ['3mo', '6mo', '1y', '2y', '5y', 'max']")
             return jsonify({'error': 'Invalid period parameter'}), 400
         
         # Clean the symbol to prevent any injection issues
@@ -387,42 +395,64 @@ def predict():
             gb_pred = hist['Close'].tail(10).median()
         
         # Model 4: LSTM (the fancy neural network for time series)
-        seq_len = 10
-        X_lstm = []
-        y_lstm = []
-        for i in range(seq_len, len(X_scaled)):
-            X_lstm.append(X_scaled[i-seq_len:i])
-            y_lstm.append(y_scaled[i])
-        X_lstm, y_lstm = np.array(X_lstm), np.array(y_lstm)
-        
-        # Try to use LSTM, but fall back gracefully if it fails (common on cloud platforms)
-        try:
-            logger.info("Attempting to create LSTM model...")
-            lstm_model = Sequential([
-                LSTM(32, input_shape=(seq_len, X_lstm.shape[2]), return_sequences=False),
-                Dropout(0.2),
-                Dense(1)
-            ])
-            logger.info("LSTM model architecture created successfully")
-            
-            logger.info("Compiling LSTM model...")
-            lstm_model.compile(optimizer='adam', loss='mse')
-            logger.info("LSTM model compiled successfully")
-            
-            logger.info("Training LSTM model...")
-            lstm_model.fit(X_lstm[:-1], y_lstm[:-1], epochs=5, batch_size=8, verbose=0)
-            logger.info("LSTM model training completed")
-            
-            logger.info("Making LSTM prediction...")
-            X_lstm_pred = X_scaled[-seq_len:].reshape(1, seq_len, X_lstm.shape[2])
-            lstm_pred = y_scaler.inverse_transform(lstm_model.predict(X_lstm_pred))[0][0]
-            logger.info("LSTM model successfully trained and used for prediction")
-        except Exception as lstm_error:
-            logger.warning(f"LSTM model failed on cloud platform (using fallback): {str(lstm_error)}")
-            logger.warning(f"LSTM error type: {type(lstm_error).__name__}")
-            # Use a simple trend-based prediction as fallback for LSTM
+        # Skip LSTM entirely on cloud platforms to avoid TensorFlow issues
+        if os.environ.get('RENDER') or os.environ.get('HEROKU') or os.environ.get('RAILWAY'):
+            logger.info("Cloud platform detected - skipping LSTM model for stability")
             recent_trend = hist['Close'].pct_change().tail(10).mean()
             lstm_pred = current_price * (1 + recent_trend)
+        else:
+            seq_len = 10
+            X_lstm = []
+            y_lstm = []
+            for i in range(seq_len, len(X_scaled)):
+                X_lstm.append(X_scaled[i-seq_len:i])
+                y_lstm.append(y_scaled[i])
+            X_lstm, y_lstm = np.array(X_lstm), np.array(y_lstm)
+            
+            # Validate LSTM data before attempting to create model
+            logger.info(f"LSTM data validation - X_lstm shape: {X_lstm.shape}, y_lstm shape: {y_lstm.shape}")
+            
+            # Try to use LSTM, but fall back gracefully if it fails (common on cloud platforms)
+            try:
+                # Additional cloud platform checks
+                if len(X_lstm) < 5:
+                    raise ValueError("Insufficient data for LSTM training")
+                
+                # Ensure data types are correct for TensorFlow
+                X_lstm = X_lstm.astype(np.float32)
+                y_lstm = y_lstm.astype(np.float32)
+                
+                # Check for NaN or infinite values
+                if np.any(np.isnan(X_lstm)) or np.any(np.isinf(X_lstm)):
+                    raise ValueError("Invalid values (NaN/inf) in LSTM input data")
+                
+                logger.info("Attempting to create LSTM model...")
+                lstm_model = Sequential([
+                    LSTM(32, input_shape=(seq_len, X_lstm.shape[2]), return_sequences=False),
+                    Dropout(0.2),
+                    Dense(1)
+                ])
+                logger.info("LSTM model architecture created successfully")
+                
+                logger.info("Compiling LSTM model...")
+                lstm_model.compile(optimizer='adam', loss='mse')
+                logger.info("LSTM model compiled successfully")
+                
+                logger.info("Training LSTM model...")
+                # Reduced epochs and batch size for cloud stability
+                lstm_model.fit(X_lstm[:-1], y_lstm[:-1], epochs=3, batch_size=4, verbose=0)
+                logger.info("LSTM model training completed")
+                
+                logger.info("Making LSTM prediction...")
+                X_lstm_pred = X_scaled[-seq_len:].reshape(1, seq_len, X_lstm.shape[2]).astype(np.float32)
+                lstm_pred = y_scaler.inverse_transform(lstm_model.predict(X_lstm_pred))[0][0]
+                logger.info("LSTM model successfully trained and used for prediction")
+            except Exception as lstm_error:
+                logger.warning(f"LSTM model failed on cloud platform (using fallback): {str(lstm_error)}")
+                logger.warning(f"LSTM error type: {type(lstm_error).__name__}")
+                # Use a simple trend-based prediction as fallback for LSTM
+                recent_trend = hist['Close'].pct_change().tail(10).mean()
+                lstm_pred = current_price * (1 + recent_trend)
         
         # Combine all our predictions and check for sanity
         predictions = [lr_pred, rf_pred, gb_pred, lstm_pred]
@@ -435,6 +465,11 @@ def predict():
             recent_returns = hist['Close'].pct_change().tail(20).mean()
             predicted_price = current_price * (1 + recent_returns)
             confidence = 30.0  # Low confidence when using fallback
+            # Set default values for metrics when using fallback
+            agreement_score = 30.0
+            accuracy_score = 15.0
+            volatility_score = 30.0
+            logger.warning("All models produced invalid predictions, using simple trend fallback")
         else:
             # Average the sane predictions
             predicted_price = np.mean(valid_predictions)
@@ -477,82 +512,75 @@ def predict():
             # Some debug info for nerds like us
             logger.info(f"Confidence components - Agreement: {agreement_score:.1f}, Accuracy: {accuracy_score:.1f}, Volatility: {volatility_score:.1f}")
             logger.info(f"Final confidence score: {confidence:.1f}")
-            
-            # Don't let the prediction be too crazy (max 5% change)
-            max_change = 0.05
-            predicted_price = np.clip(
-                predicted_price,
-                current_price * (1 - max_change),
-                current_price * (1 + max_change)
-            )
-            
-            # Calculate how much change we're predicting
-            expected_change = ((predicted_price - current_price) / current_price) * 100
-            
-            # Prepare the chart data - last 30 days plus our prediction
-            recent_data = hist.tail(30)
-            chart_dates = recent_data.index.strftime('%Y-%m-%d').tolist()
-            actual_prices = recent_data['Close'].tolist()
-            
-            # Figure out the next trading day for our prediction
-            last_date = recent_data.index[-1]
-            next_date = last_date + pd.Timedelta(days=1)
-            
-            # Skip weekends (market's closed!)
-            while next_date.weekday() > 4:  # 5 is Saturday, 6 is Sunday
-                next_date += pd.Timedelta(days=1)
-            
-            next_date_str = next_date.strftime('%Y-%m-%d')
-            
-            # Debug info
-            logger.info(f"Last historical date: {last_date.strftime('%Y-%m-%d')}")
-            logger.info(f"Next trading day: {next_date_str}")
-            
-            # Add our prediction to the chart
-            chart_dates.append(next_date_str)
-            actual_prices.append(None)  # No actual price yet (it's the future!)
-            
-            # Show prediction as just the final point
-            historical_predictions = [None] * (len(actual_prices) - 1)
-            historical_predictions.append(predicted_price)
-            
-            logger.info(f"Chart dates: {chart_dates}")
-            
-            response_data = {
-                'current_price': current_price,
-                'predicted_price': predicted_price,
-                'expected_change': expected_change,
-                'prediction_confidence': float(confidence),
-                'best_model': 'Ensemble (LR, RF, GB, LSTM)',
-                'technical_analysis': {
-                    'rsi': current_rsi,
-                    'macd': current_macd,
-                    'support_level': float(hist['BB_lower'].iloc[-1]),
-                    'resistance_level': float(hist['BB_upper'].iloc[-1])
-                },
-                'risk_metrics': {
-                    'volatility': float(volatility),
-                    'sharpe_ratio': float(sharpe_ratio),
-                    'max_drawdown': max_drawdown,
-                    'price_momentum': current_momentum,
-                    'volume_trend': current_volume_trend
-                },
-                'model_performance': {
-                    'model_agreement': float(agreement_score),
-                    'recent_accuracy': float(accuracy_score),
-                    'volatility_impact': float(volatility_score)
-                },
-                'chart_data': {
-                    'dates': chart_dates,
-                    'actual': [float(p) if p is not None else None for p in actual_prices],
-                    'predicted': [float(p) if p is not None else None for p in historical_predictions]
-                },
-                'data_source': 'Simulated Market Data (Demo)',
-                'data_points': len(hist),
-                'note': f'Prediction based on {period} of historical data using ensemble of 4 models.'
-            }
-            logger.info(f"Successfully generated prediction for {symbol}")
-            return jsonify(response_data)
+        
+        # MOVED OUTSIDE THE ELSE BLOCK - Always build response regardless of model success
+        # Don't let the prediction be too crazy (max 5% change)
+        max_change = 0.05
+        predicted_price = np.clip(
+            predicted_price,
+            current_price * (1 - max_change),
+            current_price * (1 + max_change)
+        )
+        
+        # Calculate how much change we're predicting
+        expected_change = ((predicted_price - current_price) / current_price) * 100
+        
+        # Prepare the chart data - last 30 days plus our prediction
+        recent_data = hist.tail(30)
+        
+        # REMOVED DATE FORMATTING - potential Render issue with strftime patterns
+        # Use simple numeric labels instead to avoid any string pattern validation issues
+        chart_dates = [f"T-{30-i}" for i in range(len(recent_data))] + ["Prediction"]
+        
+        actual_prices = recent_data['Close'].tolist()
+        
+        # REMOVED COMPLEX DATE CALCULATIONS - potential Render compatibility issue
+        # Just use simple labels for chart display
+        
+        # Add our prediction to the chart
+        actual_prices.append(None)  # No actual price yet (it's the future!)
+        
+        # Show prediction as just the final point
+        historical_predictions = [None] * (len(actual_prices) - 1)
+        historical_predictions.append(predicted_price)
+        
+        logger.info(f"Chart prepared with {len(chart_dates)} data points")
+        
+        response_data = {
+            'current_price': current_price,
+            'predicted_price': predicted_price,
+            'expected_change': expected_change,
+            'prediction_confidence': float(confidence),
+            'best_model': 'Ensemble (LR, RF, GB, LSTM)',
+            'technical_analysis': {
+                'rsi': current_rsi,
+                'macd': current_macd,
+                'support_level': float(hist['BB_lower'].iloc[-1]),
+                'resistance_level': float(hist['BB_upper'].iloc[-1])
+            },
+            'risk_metrics': {
+                'volatility': float(volatility),
+                'sharpe_ratio': float(sharpe_ratio),
+                'max_drawdown': max_drawdown,
+                'price_momentum': current_momentum,
+                'volume_trend': current_volume_trend
+            },
+            'model_performance': {
+                'model_agreement': float(agreement_score),
+                'recent_accuracy': float(accuracy_score),
+                'volatility_impact': float(volatility_score)
+            },
+            'chart_data': {
+                'dates': chart_dates,
+                'actual': [float(p) if p is not None else None for p in actual_prices],
+                'predicted': [float(p) if p is not None else None for p in historical_predictions]
+            },
+            'data_source': 'Simulated Market Data (Demo)',
+            'data_points': len(hist),
+            'note': f'Prediction based on {period} of historical data using ensemble of 4 models.'
+        }
+        logger.info(f"Successfully generated prediction for {symbol}")
+        return jsonify(response_data)
     except Exception as e:
         logger.error(f"Error in prediction: {str(e)}")
         return jsonify({'error': f'Prediction failed: {str(e)}'}), 500

@@ -107,78 +107,76 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     function updateChart(chartData) {
-        // Check if Chart.js is available (since we commented out CDN for cloud compatibility)
-        if (typeof Chart === 'undefined') {
-            console.log('Chart.js not available - charts disabled for cloud compatibility');
+        // Simple fallback chart using HTML/CSS instead of Chart.js
+        const chartContainer = document.getElementById('priceChart');
+        
+        // Clear any existing chart
+        chartContainer.innerHTML = '';
+        
+        // Create a simple line chart using divs and CSS
+        const actualPrices = chartData.actual.filter(price => price !== null);
+        const dates = chartData.dates.slice(0, actualPrices.length);
+        
+        if (actualPrices.length === 0) {
+            chartContainer.innerHTML = '<p>No chart data available</p>';
             return;
         }
         
-        const ctx = document.getElementById('priceChart').getContext('2d');
+        // Find min and max for scaling
+        const minPrice = Math.min(...actualPrices);
+        const maxPrice = Math.max(...actualPrices);
+        const priceRange = maxPrice - minPrice;
         
-        // Destroy the old chart if it exists
-        if (priceChart) {
-            priceChart.destroy();
+        // Add predicted price if available
+        const predictedPrice = chartData.predicted[chartData.predicted.length - 1];
+        const allPrices = [...actualPrices];
+        if (predictedPrice !== null) {
+            allPrices.push(predictedPrice);
         }
         
-        priceChart = new Chart(ctx, {
-            type: 'line',
-            data: {
-                labels: chartData.dates,
-                datasets: [
-                    {
-                        label: 'Actual Price',
-                        data: chartData.actual,
-                        borderColor: 'rgb(75, 192, 192)',
-                        tension: 0.1
-                    },
-                    {
-                        label: 'Predicted Price',
-                        data: chartData.predicted,
-                        borderColor: 'rgb(255, 99, 132)',
-                        tension: 0.1,
-                        pointRadius: function(context) {
-                            // Only show the prediction point (the last one)
-                            return context.dataIndex === context.dataset.data.length - 1 ? 6 : 0;
-                        },
-                        pointStyle: 'circle',
-                        pointBackgroundColor: 'rgb(255, 99, 132)',
-                        pointBorderColor: '#fff',
-                        pointBorderWidth: 2,
-                        showLine: false  // Don't connect the prediction point
-                    }
-                ]
-            },
-            options: {
-                responsive: true,
-                plugins: {
-                    title: {
-                        display: true,
-                        text: 'Stock Price Prediction'
-                    },
-                    tooltip: {
-                        callbacks: {
-                            label: function(context) {
-                                if (context.dataset.label === 'Predicted Price' && context.dataIndex === context.dataset.data.length - 1) {
-                                    return `Predicted Price: $${context.raw.toFixed(2)}`;
-                                }
-                                return `${context.dataset.label}: $${context.raw.toFixed(2)}`;
-                            }
-                        }
-                    }
-                },
-                scales: {
-                    x: {
-                        ticks: {
-                            maxRotation: 45,
-                            minRotation: 45
-                        }
-                    },
-                    y: {
-                        beginAtZero: false
-                    }
-                }
-            }
+        // Create chart HTML
+        let chartHTML = `
+            <div class="simple-chart">
+                <div class="chart-title">Stock Price Chart (Recent Trading Days)</div>
+                <div class="chart-container">
+                    <div class="price-line">
+        `;
+        
+        // Add price points
+        actualPrices.forEach((price, index) => {
+            const x = (index / (actualPrices.length - 1)) * 100;
+            const y = ((price - minPrice) / priceRange) * 70; // 70% of height for data, inverted
+            chartHTML += `<div class="price-point actual" style="left: ${x}%; bottom: ${y + 10}%;" title="$${price.toFixed(2)}"></div>`;
         });
+        
+        // Add predicted price point if available
+        if (predictedPrice !== null) {
+            const y = ((predictedPrice - minPrice) / priceRange) * 70; // Inverted positioning
+            chartHTML += `<div class="price-point predicted" style="left: 100%; bottom: ${y + 10}%;" title="Predicted: $${predictedPrice.toFixed(2)}"></div>`;
+        }
+        
+        chartHTML += `
+                    </div>
+                    <div class="chart-labels">
+                        <div class="price-labels">
+                            <div class="price-label">$${maxPrice.toFixed(2)}</div>
+                            <div class="price-label">$${minPrice.toFixed(2)}</div>
+                        </div>
+                        <div class="date-labels">
+                            <span>Start</span>
+                            <span>Latest</span>
+                            ${predictedPrice !== null ? '<span class="predicted-label">Prediction</span>' : ''}
+                        </div>
+                    </div>
+                </div>
+                <div class="chart-legend">
+                    <span class="legend-item"><span class="legend-color actual"></span> Historical Prices</span>
+                    ${predictedPrice !== null ? '<span class="legend-item"><span class="legend-color predicted"></span> Prediction</span>' : ''}
+                </div>
+            </div>
+        `;
+        
+        chartContainer.innerHTML = chartHTML;
     }
 
     // Handle the model info tabs switching
