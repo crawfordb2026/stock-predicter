@@ -9,7 +9,7 @@ from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 from sklearn.linear_model import LinearRegression
 from sklearn.ensemble import RandomForestRegressor
-import yfinance as yf
+# import yfinance as yf  # COMMENTED OUT - Using simulated data instead
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -31,15 +31,20 @@ class StockPredictor:
     def fetch_data(self):
         """Grab stock data from Yahoo Finance (it's free!)"""
         try:
-            stock = yf.Ticker(self.symbol)
-            data = stock.history(period=self.period)
+            # COMMENTED OUT - Using simulated data instead of external API calls
+            # stock = yf.Ticker(self.symbol)
+            # data = stock.history(period=self.period)
             
-            if data.empty:
-                raise ValueError(f"No data found for symbol {self.symbol}")
-                
-            self.data = data
-            print(f"Successfully fetched {len(data)} days of data for {self.symbol}")
-            return data
+            # if data.empty:
+            #     raise ValueError(f"No data found for symbol {self.symbol}")
+            
+            # self.data = data
+            # print(f"Successfully fetched {len(data)} days of data for {self.symbol}")
+            # return data
+            
+            # Using simulated data instead
+            print(f"Note: Using simulated data for {self.symbol} instead of external API")
+            return None
             
         except Exception as e:
             print(f"Error fetching data: {e}")

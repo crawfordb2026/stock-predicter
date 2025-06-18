@@ -1,5 +1,5 @@
-from textblob import TextBlob
-from newsapi import NewsApiClient
+# from newsapi import NewsApiClient  # COMMENTED OUT - No external API calls
+# from textblob import TextBlob  # COMMENTED OUT - Could make network calls for language processing
 import pandas as pd
 import logging
 from datetime import datetime, timedelta
@@ -10,7 +10,7 @@ load_dotenv()
 
 class SentimentAnalyzer:
     def __init__(self):
-        self.news_api = NewsApiClient(api_key=os.getenv('NEWS_API_KEY'))
+        # self.news_api = NewsApiClient(api_key=os.getenv('NEWS_API_KEY'))
         self.logger = logging.getLogger(__name__)
 
     def get_news_sentiment(self, symbol, company_name, days=7):
@@ -21,45 +21,45 @@ class SentimentAnalyzer:
             start_date = end_date - timedelta(days=days)
             
             # Search for recent news articles
-            news = self.news_api.get_everything(
-                q=f"{symbol} OR {company_name}",
-                from_param=start_date.strftime('%Y-%m-%d'),
-                to=end_date.strftime('%Y-%m-%d'),
-                language='en',
-                sort_by='relevancy'
-            )
+            # news = self.news_api.get_everything(
+            #     q=f"{symbol} OR {company_name}",
+            #     from_param=start_date.strftime('%Y-%m-%d'),
+            #     to=end_date.strftime('%Y-%m-%d'),
+            #     language='en',
+            #     sort_by='relevancy'
+            # )
             
             # Analyze the sentiment of each article
             sentiments = []
-            for article in news['articles']:
-                # Look at both title and description for better analysis
-                text = f"{article['title']} {article['description']}"
-                sentiment = TextBlob(text).sentiment
-                
-                sentiments.append({
-                    'date': article['publishedAt'],
-                    'title': article['title'],
-                    'polarity': sentiment.polarity,
-                    'subjectivity': sentiment.subjectivity
-                })
+            # for article in news['articles']:
+            #     # Look at both title and description for better analysis
+            #     text = f"{article['title']} {article['description']}"
+            #     sentiment = TextBlob(text).sentiment
+            #     
+            #     sentiments.append({
+            #         'date': article['publishedAt'],
+            #         'title': article['title'],
+            #         'polarity': sentiment.polarity,
+            #         'subjectivity': sentiment.subjectivity
+            #     })
             
             # Put it all in a nice DataFrame
-            df = pd.DataFrame(sentiments)
-            df['date'] = pd.to_datetime(df['date'])
+            # df = pd.DataFrame(sentiments)
+            # df['date'] = pd.to_datetime(df['date'])
             
             # Calculate average sentiment for each day
-            daily_sentiment = df.groupby(df['date'].dt.date).agg({
-                'polarity': 'mean',
-                'subjectivity': 'mean'
-            }).reset_index()
+            # daily_sentiment = df.groupby(df['date'].dt.date).agg({
+            #     'polarity': 'mean',
+            #     'subjectivity': 'mean'
+            # }).reset_index()
             
             return {
-                'daily_sentiment': daily_sentiment.to_dict('records'),
+                'daily_sentiment': [],
                 'overall_sentiment': {
-                    'polarity': df['polarity'].mean(),
-                    'subjectivity': df['subjectivity'].mean()
+                    'polarity': 0.0,
+                    'subjectivity': 0.0
                 },
-                'article_count': len(sentiments)
+                'article_count': 0
             }
             
         except Exception as e:

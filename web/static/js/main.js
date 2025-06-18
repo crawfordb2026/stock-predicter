@@ -107,6 +107,12 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     function updateChart(chartData) {
+        // Check if Chart.js is available (since we commented out CDN for cloud compatibility)
+        if (typeof Chart === 'undefined') {
+            console.log('Chart.js not available - charts disabled for cloud compatibility');
+            return;
+        }
+        
         const ctx = document.getElementById('priceChart').getContext('2d');
         
         // Destroy the old chart if it exists

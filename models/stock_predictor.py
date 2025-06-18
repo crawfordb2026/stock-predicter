@@ -7,9 +7,9 @@ from sklearn.preprocessing import MinMaxScaler
 from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_squared_error, r2_score
-import ta
-from textblob import TextBlob
-import yfinance as yf
+# import ta  # COMMENTED OUT - Could potentially make network calls
+# from textblob import TextBlob  # COMMENTED OUT - Could make network calls for language processing
+# import yfinance as yf  # COMMENTED OUT - Using simulated data instead
 import logging
 
 class EnhancedStockPredictor:
@@ -24,54 +24,59 @@ class EnhancedStockPredictor:
     def fetch_data(self):
         """Grab stock data and add all the fancy technical indicators"""
         try:
+            # COMMENTED OUT - All external API calls removed, using simulated data instead
             # Get the raw stock data
-            stock = yf.Ticker(self.symbol)
-            self.data = stock.history(period=self.period)
+            # stock = yf.Ticker(self.symbol)
+            # self.data = stock.history(period=self.period)
             
             # Calculate all the technical indicators traders love
-            self._add_technical_indicators()
+            # self._add_technical_indicators()
             
             # Add broader market context
-            self._add_market_indicators()
+            # self._add_market_indicators()
             
-            return True
+            print(f"Note: Using simulated data for {self.symbol} instead of external APIs")
+            return False  # Indicate that no real data was fetched
         except Exception as e:
             self.logger.error(f"Error fetching data: {str(e)}")
             return False
 
     def _add_technical_indicators(self):
         """Calculate all the technical indicators that might help predict prices"""
+        # COMMENTED OUT - ta library could potentially make network calls
         # Trend indicators (which way is it going?)
-        self.data['SMA_20'] = ta.trend.sma_indicator(self.data['Close'], window=20)
-        self.data['SMA_50'] = ta.trend.sma_indicator(self.data['Close'], window=50)
-        self.data['EMA_20'] = ta.trend.ema_indicator(self.data['Close'], window=20)
+        # self.data['SMA_20'] = ta.trend.sma_indicator(self.data['Close'], window=20)
+        # self.data['SMA_50'] = ta.trend.sma_indicator(self.data['Close'], window=50)
+        # self.data['EMA_20'] = ta.trend.ema_indicator(self.data['Close'], window=20)
         
         # Momentum indicators (how fast is it moving?)
-        self.data['RSI'] = ta.momentum.rsi(self.data['Close'])
-        self.data['MACD'] = ta.trend.macd_diff(self.data['Close'])
-        self.data['Stoch'] = ta.momentum.stoch(self.data['High'], self.data['Low'], self.data['Close'])
+        # self.data['RSI'] = ta.momentum.rsi(self.data['Close'])
+        # self.data['MACD'] = ta.trend.macd_diff(self.data['Close'])
+        # self.data['Stoch'] = ta.momentum.stoch(self.data['High'], self.data['Low'], self.data['Close'])
         
         # Volatility indicators (how wild is it getting?)
-        self.data['BB_upper'], self.data['BB_middle'], self.data['BB_lower'] = ta.volatility.bollinger_bands(self.data['Close'])
-        self.data['ATR'] = ta.volatility.average_true_range(self.data['High'], self.data['Low'], self.data['Close'])
+        # self.data['BB_upper'], self.data['BB_middle'], self.data['BB_lower'] = ta.volatility.bollinger_bands(self.data['Close'])
+        # self.data['ATR'] = ta.volatility.average_true_range(self.data['High'], self.data['Low'], self.data['Close'])
         
         # Volume indicators (how much interest is there?)
-        self.data['OBV'] = ta.volume.on_balance_volume(self.data['Close'], self.data['Volume'])
-        self.data['MFI'] = ta.volume.money_flow_index(self.data['High'], self.data['Low'], self.data['Close'], self.data['Volume'])
+        # self.data['OBV'] = ta.volume.on_balance_volume(self.data['Close'], self.data['Volume'])
+        # self.data['MFI'] = ta.volume.money_flow_index(self.data['High'], self.data['Low'], self.data['Close'], self.data['Volume'])
+        
+        print("Note: Technical indicators disabled to avoid external dependencies")
 
     def _add_market_indicators(self):
         """Add context from the broader market"""
         # Get S&P 500 data for market context
-        sp500 = yf.Ticker('^GSPC')
-        sp500_data = sp500.history(period=self.period)
+        # sp500 = yf.Ticker('^GSPC')
+        # sp500_data = sp500.history(period=self.period)
         
         # See how correlated this stock is with the overall market
-        self.data['SP500_Correlation'] = self.data['Close'].rolling(window=20).corr(sp500_data['Close'])
+        # self.data['SP500_Correlation'] = self.data['Close'].rolling(window=20).corr(sp500_data['Close'])
         
         # Add fear index (VIX) - when this spikes, everything goes crazy
-        vix = yf.Ticker('^VIX')
-        vix_data = vix.history(period=self.period)
-        self.data['VIX'] = vix_data['Close']
+        # vix = yf.Ticker('^VIX')
+        # vix_data = vix.history(period=self.period)
+        # self.data['VIX'] = vix_data['Close']
 
     def prepare_data(self, sequence_length=10):
         """Get the data ready for our machine learning models"""

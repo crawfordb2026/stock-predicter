@@ -18,7 +18,6 @@ from flask import Flask, request, jsonify, send_from_directory, send_file
 from flask_cors import CORS
 import pandas as pd
 import numpy as np
-import requests
 from datetime import datetime, timedelta
 import logging
 from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
@@ -35,10 +34,6 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 CORS(app, origins=['*'])  #let everyone access this for now (needed for Render)
-
-# Get API key from environment variable (much safer!)
-FINNHUB_API_KEY = os.environ.get('FINNHUB_API_KEY', 'your-api-key-here')
-FINNHUB_BASE_URL = "https://finnhub.io/api/v1"
 
 @app.route('/')
 def home():
@@ -256,6 +251,8 @@ def debug_data(symbol):
 @app.route('/predict', methods=['POST'])
 def predict():
     try:
+        logger.info("=== PREDICTION REQUEST STARTED ===")
+        
         # Make sure they sent us proper JSON
         if not request.is_json:
             return jsonify({'error': 'Request must be JSON'}), 400
@@ -268,6 +265,7 @@ def predict():
         period = data.get('period', '2y')
         
         logger.info(f"Received prediction request for {symbol} over {period}")
+        logger.info(f"Running on environment: {'cloud' if os.environ.get('RENDER') else 'local'}")
         
         # Basic input validation
         if not symbol or len(symbol) > 10:
@@ -281,13 +279,20 @@ def predict():
         if not symbol:
             return jsonify({'error': 'Symbol contains no valid characters'}), 400
         
+        logger.info("Input validation passed")
+        
         # Grab the historical data
+        logger.info("Fetching historical data...")
         hist = fetch_stock_data(symbol, period)
         
         if hist is None or len(hist) == 0:
+            logger.error(f"Failed to fetch data for {symbol}")
             return jsonify({'error': f'Unable to fetch data for {symbol}. Please check the symbol and try again.'}), 400
         
+        logger.info(f"Successfully fetched {len(hist)} data points")
+        
         # Calculate all our technical indicators 
+        logger.info("Calculating technical indicators...")
         hist['SMA_5'] = hist['Close'].rolling(window=5).mean()
         hist['SMA_20'] = hist['Close'].rolling(window=20).mean()
         hist['RSI'] = calculate_rsi(hist['Close'])
@@ -317,20 +322,27 @@ def predict():
         current_momentum = float(hist['Price_Momentum'].iloc[-1])
         current_volume_trend = float(hist['Volume_Trend'].iloc[-1])
         
+        logger.info("Technical indicators calculated successfully")
+        
         # Get our data ready for the ML models
+        logger.info("Preparing data for ML models...")
         hist = hist.dropna()
         feature_cols = ['Open', 'High', 'Low', 'Volume', 'SMA_5', 'SMA_20', 'RSI', 'MACD', 'Signal', 'BB_upper', 'BB_middle', 'BB_lower', 'ATR', 'OBV', 'Price_Momentum', 'Volume_Trend']
         if len(hist) < 30:
             return jsonify({'error': 'Not enough data to make a prediction.'}), 400
         
+        logger.info(f"Data prepared with {len(hist)} rows and {len(feature_cols)} features")
+        
         # Keep things consistent with random seeds
         np.random.seed(42)
         tf.random.set_seed(42)
+        logger.info("Random seeds set for reproducibility")
         
         X = hist[feature_cols].values
         y = hist['Close'].values
         
         # Scale everything so the models can work with it properly
+        logger.info("Scaling data for ML models...")
         X_scaler = MinMaxScaler()
         y_scaler = MinMaxScaler()
         X_scaled = X_scaler.fit_transform(X)
@@ -338,8 +350,10 @@ def predict():
         
         # Use the latest data for our prediction
         X_pred = X_scaled[-1].reshape(1, -1)
+        logger.info("Data scaling completed successfully")
         
         # Time to run our ensemble of models!
+        logger.info("Starting ML model ensemble training...")
         
         # Model 1: Linear Regression (simple but effective baseline)
         try:
@@ -383,19 +397,29 @@ def predict():
         
         # Try to use LSTM, but fall back gracefully if it fails (common on cloud platforms)
         try:
+            logger.info("Attempting to create LSTM model...")
             lstm_model = Sequential([
                 LSTM(32, input_shape=(seq_len, X_lstm.shape[2]), return_sequences=False),
                 Dropout(0.2),
                 Dense(1)
             ])
-            lstm_model.compile(optimizer='adam', loss='mse')
-            lstm_model.fit(X_lstm[:-1], y_lstm[:-1], epochs=5, batch_size=8, verbose=0)
+            logger.info("LSTM model architecture created successfully")
             
+            logger.info("Compiling LSTM model...")
+            lstm_model.compile(optimizer='adam', loss='mse')
+            logger.info("LSTM model compiled successfully")
+            
+            logger.info("Training LSTM model...")
+            lstm_model.fit(X_lstm[:-1], y_lstm[:-1], epochs=5, batch_size=8, verbose=0)
+            logger.info("LSTM model training completed")
+            
+            logger.info("Making LSTM prediction...")
             X_lstm_pred = X_scaled[-seq_len:].reshape(1, seq_len, X_lstm.shape[2])
             lstm_pred = y_scaler.inverse_transform(lstm_model.predict(X_lstm_pred))[0][0]
             logger.info("LSTM model successfully trained and used for prediction")
         except Exception as lstm_error:
             logger.warning(f"LSTM model failed on cloud platform (using fallback): {str(lstm_error)}")
+            logger.warning(f"LSTM error type: {type(lstm_error).__name__}")
             # Use a simple trend-based prediction as fallback for LSTM
             recent_trend = hist['Close'].pct_change().tail(10).mean()
             lstm_pred = current_price * (1 + recent_trend)
@@ -523,7 +547,7 @@ def predict():
                     'actual': [float(p) if p is not None else None for p in actual_prices],
                     'predicted': [float(p) if p is not None else None for p in historical_predictions]
                 },
-                'data_source': 'Market Data Provider',
+                'data_source': 'Simulated Market Data (Demo)',
                 'data_points': len(hist),
                 'note': f'Prediction based on {period} of historical data using ensemble of 4 models.'
             }
