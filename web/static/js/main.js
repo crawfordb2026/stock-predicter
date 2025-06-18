@@ -8,7 +8,7 @@ document.addEventListener('DOMContentLoaded', function() {
         // Use whatever URL we're currently on
         baseUrl: `${window.location.protocol}//${window.location.host}`,
         // Backup plan for local development
-        fallbackUrl: 'http://127.0.0.1:5001'
+        fallbackUrl: 'http://127.0.0.1:8080'
     };
     
     let priceChart = null;

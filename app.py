@@ -7,6 +7,13 @@ load_dotenv()
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # Keep TensorFlow quiet 
 os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'  # Turn off some optimizations that can break things
 
+# Additional cloud platform optimizations
+if os.environ.get('RENDER') or os.environ.get('HEROKU') or os.environ.get('RAILWAY'):
+    # Running on cloud platform - be extra careful with TensorFlow
+    os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'
+    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # Even quieter on cloud
+    os.environ['CUDA_VISIBLE_DEVICES'] = '-1'  # Force CPU-only on cloud
+
 from flask import Flask, request, jsonify, send_from_directory, send_file
 from flask_cors import CORS
 import pandas as pd
@@ -269,6 +276,11 @@ def predict():
         if period not in ['1y', '2y', '5y', 'max']:
             return jsonify({'error': 'Invalid period parameter'}), 400
         
+        # Clean the symbol to prevent any injection issues
+        symbol = ''.join(c for c in symbol if c.isalnum()).upper()
+        if not symbol:
+            return jsonify({'error': 'Symbol contains no valid characters'}), 400
+        
         # Grab the historical data
         hist = fetch_stock_data(symbol, period)
         
@@ -330,19 +342,35 @@ def predict():
         # Time to run our ensemble of models!
         
         # Model 1: Linear Regression (simple but effective baseline)
-        lr = LinearRegression()
-        lr.fit(X_scaled[:-1], y_scaled[:-1])
-        lr_pred = y_scaler.inverse_transform(lr.predict(X_pred).reshape(-1, 1))[0][0]
+        try:
+            lr = LinearRegression()
+            lr.fit(X_scaled[:-1], y_scaled[:-1])
+            lr_pred = y_scaler.inverse_transform(lr.predict(X_pred).reshape(-1, 1))[0][0]
+            logger.info("Linear Regression model successfully trained")
+        except Exception as lr_error:
+            logger.warning(f"Linear Regression failed, using simple trend: {str(lr_error)}")
+            recent_trend = hist['Close'].pct_change().tail(5).mean()
+            lr_pred = current_price * (1 + recent_trend)
         
         # Model 2: Random Forest (good at finding complex patterns)
-        rf = RandomForestRegressor(n_estimators=50, random_state=42)
-        rf.fit(X_scaled[:-1], y_scaled[:-1])
-        rf_pred = y_scaler.inverse_transform(rf.predict(X_pred).reshape(-1, 1))[0][0]
+        try:
+            rf = RandomForestRegressor(n_estimators=50, random_state=42)
+            rf.fit(X_scaled[:-1], y_scaled[:-1])
+            rf_pred = y_scaler.inverse_transform(rf.predict(X_pred).reshape(-1, 1))[0][0]
+            logger.info("Random Forest model successfully trained")
+        except Exception as rf_error:
+            logger.warning(f"Random Forest failed, using moving average: {str(rf_error)}")
+            rf_pred = hist['Close'].rolling(window=20).mean().iloc[-1]
         
         # Model 3: Gradient Boosting (great at correcting mistakes)
-        gb = GradientBoostingRegressor(n_estimators=50, random_state=42)
-        gb.fit(X_scaled[:-1], y_scaled[:-1])
-        gb_pred = y_scaler.inverse_transform(gb.predict(X_pred).reshape(-1, 1))[0][0]
+        try:
+            gb = GradientBoostingRegressor(n_estimators=50, random_state=42)
+            gb.fit(X_scaled[:-1], y_scaled[:-1])
+            gb_pred = y_scaler.inverse_transform(gb.predict(X_pred).reshape(-1, 1))[0][0]
+            logger.info("Gradient Boosting model successfully trained")
+        except Exception as gb_error:
+            logger.warning(f"Gradient Boosting failed, using median price: {str(gb_error)}")
+            gb_pred = hist['Close'].tail(10).median()
         
         # Model 4: LSTM (the fancy neural network for time series)
         seq_len = 10
@@ -353,16 +381,24 @@ def predict():
             y_lstm.append(y_scaled[i])
         X_lstm, y_lstm = np.array(X_lstm), np.array(y_lstm)
         
-        lstm_model = Sequential([
-            LSTM(32, input_shape=(seq_len, X_lstm.shape[2]), return_sequences=False),
-            Dropout(0.2),
-            Dense(1)
-        ])
-        lstm_model.compile(optimizer='adam', loss='mse')
-        lstm_model.fit(X_lstm[:-1], y_lstm[:-1], epochs=5, batch_size=8, verbose=0)
-        
-        X_lstm_pred = X_scaled[-seq_len:].reshape(1, seq_len, X_lstm.shape[2])
-        lstm_pred = y_scaler.inverse_transform(lstm_model.predict(X_lstm_pred))[0][0]
+        # Try to use LSTM, but fall back gracefully if it fails (common on cloud platforms)
+        try:
+            lstm_model = Sequential([
+                LSTM(32, input_shape=(seq_len, X_lstm.shape[2]), return_sequences=False),
+                Dropout(0.2),
+                Dense(1)
+            ])
+            lstm_model.compile(optimizer='adam', loss='mse')
+            lstm_model.fit(X_lstm[:-1], y_lstm[:-1], epochs=5, batch_size=8, verbose=0)
+            
+            X_lstm_pred = X_scaled[-seq_len:].reshape(1, seq_len, X_lstm.shape[2])
+            lstm_pred = y_scaler.inverse_transform(lstm_model.predict(X_lstm_pred))[0][0]
+            logger.info("LSTM model successfully trained and used for prediction")
+        except Exception as lstm_error:
+            logger.warning(f"LSTM model failed on cloud platform (using fallback): {str(lstm_error)}")
+            # Use a simple trend-based prediction as fallback for LSTM
+            recent_trend = hist['Close'].pct_change().tail(10).mean()
+            lstm_pred = current_price * (1 + recent_trend)
         
         # Combine all our predictions and check for sanity
         predictions = [lr_pred, rf_pred, gb_pred, lstm_pred]
@@ -502,21 +538,27 @@ def health_check():
     """Simple health check to make sure everything's working"""
     try:
         # Make sure all our important modules are still there
-        import yfinance
         import pandas
         import numpy
         import sklearn
         import tensorflow
         
+        # Test basic functionality
+        test_data = fetch_stock_data('AAPL', '1y')
+        can_predict = test_data is not None and len(test_data) > 30
+        
         return jsonify({
             'status': 'healthy',
             'message': 'Stock Predictor API is operational',
-            'dependencies': 'all modules loaded successfully'
+            'dependencies': 'all modules loaded successfully',
+            'data_generation': 'working' if can_predict else 'limited',
+            'environment': 'cloud' if os.environ.get('RENDER') or os.environ.get('HEROKU') else 'local'
         }), 200
     except Exception as e:
         return jsonify({
             'status': 'unhealthy',
-            'message': str(e)
+            'message': str(e),
+            'environment': 'cloud' if os.environ.get('RENDER') or os.environ.get('HEROKU') else 'local'
         }), 500
 
 if __name__ == '__main__':
